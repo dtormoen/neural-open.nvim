@@ -17,7 +17,7 @@ jobs:
         with:
           luaVersion: "luajit-2.1"
 
-      - uses: leafo/gh-actions-luarocks@v4
+      - uses: leafo/gh-actions-luarocks@v6
 
       - uses: rhysd/action-setup-vim@v1
         with:
