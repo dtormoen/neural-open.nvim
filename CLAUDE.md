@@ -25,6 +25,7 @@ Results are documented in `docs/benchmark-results.md`.
 - **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`) and `input_buf_to_features()` utility shared by all algorithms
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
 - **`recent.lua`**: Persistent recency tracking with in-memory cache and debounced disk writes
+- **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
 - **`db.lua`**: JSON file storage with atomic writes for persistent weight storage
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
 
@@ -111,7 +112,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 
 - **Weights file**: JSON file storing learned weight adjustments per algorithm
   - Classic algorithm: Feature weights
-  - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format), and format version
+  - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with normalized absolute paths for positive_file/negative_file), ranking accuracy metrics, and format version
   - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
   - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption

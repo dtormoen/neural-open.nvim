@@ -1,27 +1,13 @@
 --- File transition tracking with frecency-based scoring
 local M = {}
 
+local path_mod = require("neural-open.path")
 local HALF_LIFE = 30 * 24 * 3600 -- 30 days in seconds
 local LAMBDA = math.log(2) / HALF_LIFE
 
 -- Exposed for testing
 M.MAX_DESTINATIONS_PER_SOURCE = 50
 M.MAX_SOURCES = 200
-
----@param path string
----@return string
-local function normalize_path(path)
-  local has_normalize = false
-  local ok = pcall(function()
-    has_normalize = vim.fs ~= nil and vim.fs.normalize ~= nil
-  end)
-
-  if ok and has_normalize then
-    return vim.fs.normalize(path, { expand_env = false })
-  else
-    return vim.fn.fnamemodify(path, ":p")
-  end
-end
 
 --- Convert a deadline timestamp to a current score: s = e^(λ*(deadline-now))
 ---@param deadline number
@@ -109,15 +95,15 @@ function M.record_transition(from_path, to_path, latency_ctx)
   local latency = require("neural-open.latency")
 
   local result, ok = latency.measure(latency_ctx, "transitions.normalize_paths", function()
-    return { normalize_path(from_path), normalize_path(to_path) }
+    return { path_mod.normalize(from_path), path_mod.normalize(to_path) }
   end, "async.transition_record")
 
   local normalized_from, normalized_to
   if ok then
     normalized_from, normalized_to = result[1], result[2]
   else
-    normalized_from = normalize_path(from_path)
-    normalized_to = normalize_path(to_path)
+    normalized_from = path_mod.normalize(from_path)
+    normalized_to = path_mod.normalize(to_path)
   end
 
   latency.start(latency_ctx, "transitions.get_weights", "async.transition_record")
@@ -153,7 +139,7 @@ end
 ---@param source_path string Source file path
 ---@return table<string, number> Map of destination paths to normalized scores
 function M.compute_scores_from(source_path)
-  local normalized_source = normalize_path(source_path)
+  local normalized_source = path_mod.normalize(source_path)
 
   local db = require("neural-open.db")
   local all_weights = db.get_weights() or {}

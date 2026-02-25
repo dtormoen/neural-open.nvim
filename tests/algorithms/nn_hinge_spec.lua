@@ -342,6 +342,7 @@ describe("Pairwise Hinge Loss", function()
         nos = {
           input_buf = features_to_input_buf(features or default_features),
           neural_score = score or 50,
+          normalized_path = file,
         },
       }
     end
@@ -633,8 +634,8 @@ describe("Pairwise Hinge Loss", function()
 
       -- Create items for training - add more items to top-10 for diverse training
       local items = {
-        { file = "neg.lua", nos = { input_buf = neg_buf, neural_score = 80 } },
-        { file = "pos.lua", nos = { input_buf = pos_buf, neural_score = 70 } },
+        { file = "neg.lua", nos = { input_buf = neg_buf, neural_score = 80, normalized_path = "neg.lua" } },
+        { file = "pos.lua", nos = { input_buf = pos_buf, neural_score = 70, normalized_path = "pos.lua" } },
       }
 
       -- Add some filler items with intermediate features to create a realistic top-10
@@ -645,7 +646,11 @@ describe("Pairwise Hinge Loss", function()
         end
         table.insert(items, {
           file = "filler" .. i .. ".lua",
-          nos = { input_buf = features_to_input_buf(filler_features), neural_score = 60 - i },
+          nos = {
+            input_buf = features_to_input_buf(filler_features),
+            neural_score = 60 - i,
+            normalized_path = "filler" .. i .. ".lua",
+          },
         })
       end
 
@@ -726,8 +731,8 @@ describe("Pairwise Hinge Loss", function()
       -- If loss is already 0, weights shouldn't change significantly
       if loss < 0.01 then
         local items = {
-          { file = "neg.lua", nos = { input_buf = neg_buf } },
-          { file = "pos.lua", nos = { input_buf = pos_buf } },
+          { file = "neg.lua", nos = { input_buf = neg_buf, normalized_path = "neg.lua" } },
+          { file = "pos.lua", nos = { input_buf = pos_buf, normalized_path = "pos.lua" } },
         }
 
         -- Get score before
@@ -754,12 +759,14 @@ describe("Pairwise Hinge Loss", function()
           file = "1.lua",
           nos = {
             input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
+            normalized_path = "1.lua",
           },
         },
         {
           file = "2.lua",
           nos = {
             input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0, 1.0 },
+            normalized_path = "2.lua",
           },
         },
       }
@@ -823,8 +830,8 @@ describe("Pairwise Hinge Loss", function()
       }
 
       local items = {
-        { file = "low.lua", nos = { input_buf = features_to_input_buf(low_quality) } },
-        { file = "high.lua", nos = { input_buf = features_to_input_buf(high_quality) } },
+        { file = "low.lua", nos = { input_buf = features_to_input_buf(low_quality), normalized_path = "low.lua" } },
+        { file = "high.lua", nos = { input_buf = features_to_input_buf(high_quality), normalized_path = "high.lua" } },
       }
 
       -- Record initial loss
@@ -863,12 +870,14 @@ describe("Pairwise Hinge Loss", function()
           file = "1.lua",
           nos = {
             input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
+            normalized_path = "1.lua",
           },
         },
         {
           file = "2.lua",
           nos = {
             input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0, 1.0 },
+            normalized_path = "2.lua",
           },
         },
       }

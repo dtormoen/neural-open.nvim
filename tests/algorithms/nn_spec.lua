@@ -17,6 +17,7 @@ describe("Neural Network Algorithm", function()
       nos = {
         input_buf = features_to_input_buf(features),
         neural_score = score or 0,
+        normalized_path = file,
       },
     }
   end

@@ -1,13 +1,6 @@
 local M = {}
 
--- Cached at module load: check once if vim.fs.normalize is available
-local _has_fs_normalize = (function()
-  local ok, result = pcall(function()
-    return vim.fs ~= nil and vim.fs.normalize ~= nil
-  end)
-  return ok and result
-end)()
-local _normalize_opts = { expand_env = false }
+local path_mod = require("neural-open.path")
 local _is_windows = vim.fn.has("win32") == 1
 
 --- Capture global context that is shared across all items in the session
@@ -28,7 +21,7 @@ function M.capture_context(ctx)
   if current_buf and vim.api.nvim_buf_is_valid(current_buf) then
     local buf_name = vim.api.nvim_buf_get_name(current_buf)
     if buf_name and buf_name ~= "" then
-      current_file = vim.fn.fnamemodify(buf_name, ":p")
+      current_file = path_mod.normalize(buf_name)
     end
   end
 
@@ -103,13 +96,7 @@ function M.create_neural_transform(config, scorer, opts)
       path = item.cwd .. "/" .. path
     end
 
-    -- Normalize the path (availability check and opts table cached at module load)
-    local normalized_path
-    if _has_fs_normalize then
-      normalized_path = vim.fs.normalize(path, _normalize_opts)
-    else
-      normalized_path = vim.fn.fnamemodify(path, ":p")
-    end
+    local normalized_path = path_mod.normalize(path)
 
     -- Set item._path to our normalized absolute path.
     -- This is the cache field that Snacks.picker.util.path() checks first,

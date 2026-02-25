@@ -1420,8 +1420,8 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
         table.insert(pairs_result, {
           positive_input = features_to_input(positive_input_buf, drop_match),
           negative_input = features_to_input(neg_input_buf, drop_match),
-          positive_file = selected_item.file,
-          negative_file = neg_item.file,
+          positive_file = selected_item.nos.normalized_path,
+          negative_file = neg_item.nos.normalized_path,
         })
         state.stats.samples_processed = state.stats.samples_processed + 1
       end

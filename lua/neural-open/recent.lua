@@ -4,6 +4,8 @@
 --- excessive I/O since the weights file may contain large NN state.
 local M = {}
 
+local path_mod = require("neural-open.path")
+
 --- In-memory ordered array of normalized paths (index 1 = most recent)
 ---@type string[]
 local recency_list = {}
@@ -19,21 +21,6 @@ local save_timer = nil
 --- Whether the in-memory list has unsaved changes
 ---@type boolean
 local dirty = false
-
---- Normalize a file path for consistent storage and comparison
----@param path string
----@return string
-local function normalize_path(path)
-  local has_normalize = false
-  local ok = pcall(function()
-    has_normalize = vim.fs ~= nil and vim.fs.normalize ~= nil
-  end)
-  if ok and has_normalize then
-    return vim.fs.normalize(path, { expand_env = false })
-  else
-    return vim.fn.fnamemodify(path, ":p")
-  end
-end
 
 --- Get the maximum recency list size from config
 ---@return number
@@ -59,7 +46,7 @@ local function seed_from_vim_sources()
         local buf_info = vim.fn.getbufinfo(buf)[1]
         if buf_info and buf_info.lastused then
           table.insert(buffers, {
-            path = normalize_path(buf_name),
+            path = path_mod.normalize(buf_name),
             lastused = buf_info.lastused,
           })
         end
@@ -89,7 +76,7 @@ local function seed_from_vim_sources()
     if #result >= limit then
       break
     end
-    local abs_path = normalize_path(file)
+    local abs_path = path_mod.normalize(file)
     if not added[abs_path] and vim.fn.filereadable(file) == 1 then
       table.insert(result, abs_path)
       added[abs_path] = true
@@ -127,7 +114,7 @@ end
 function M.record_buffer_focus(path)
   ensure_loaded()
 
-  local normalized = normalize_path(path)
+  local normalized = path_mod.normalize(path)
 
   -- Remove existing entry if present
   for i = #recency_list, 1, -1 do

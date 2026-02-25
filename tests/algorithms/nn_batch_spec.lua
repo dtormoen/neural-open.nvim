@@ -364,11 +364,11 @@ describe("Neural Network Batch Processing", function()
 
       local selected_item = {
         file = "test1.lua",
-        nos = { input_buf = input_buf1 },
+        nos = { input_buf = input_buf1, normalized_path = "test1.lua" },
       }
 
       local ranked_items = {
-        { file = "test2.lua", nos = { input_buf = input_buf2 } },
+        { file = "test2.lua", nos = { input_buf = input_buf2, normalized_path = "test2.lua" } },
         selected_item,
       }
 
