@@ -316,38 +316,7 @@ function M.sigmoid(x)
   return 1 / (1 + math.exp(-x))
 end
 
---- Sigmoid derivative
----@param x number Sigmoid output value
----@return number Derivative value
-function M.sigmoid_derivative(x)
-  return x * (1 - x)
-end
-
 -- Loss functions
-
---- Binary cross-entropy loss
----@param predicted number Predicted value (0 to 1)
----@param target number Target value (0 or 1)
----@return number Loss value
-function M.binary_cross_entropy(predicted, target)
-  -- Clip predictions to avoid log(0)
-  local eps = 1e-7
-  predicted = math.max(eps, math.min(1 - eps, predicted))
-
-  return -target * math.log(predicted) - (1 - target) * math.log(1 - predicted)
-end
-
---- Binary cross-entropy derivative
----@param predicted number Predicted value (0 to 1)
----@param target number Target value (0 or 1)
----@return number Gradient value
-function M.binary_cross_entropy_derivative(predicted, target)
-  -- Clip predictions to avoid division by zero
-  local eps = 1e-7
-  predicted = math.max(eps, math.min(1 - eps, predicted))
-
-  return (predicted - target) / (predicted * (1 - predicted))
-end
 
 --- Pairwise hinge loss for ranking
 ---@param score_pos number Positive item score (0-1)

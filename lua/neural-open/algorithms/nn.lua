@@ -1137,25 +1137,8 @@ local function ensure_weights(force_reload)
     local weights_module = require("neural-open.weights")
     local algorithm_weights = weights_module.get_weights("nn")
 
-    -- Detect and handle migration from old BCE format to new pairwise hinge loss format
-    local needs_migration = false
-    local old_version = false
-
     if algorithm_weights and algorithm_weights.nn then
-      -- Check for version field
-      local version = algorithm_weights.nn.version
-
-      if not version or version == "1.0-bce" then
-        -- Old BCE format detected
-        old_version = true
-        needs_migration = true
-      elseif version ~= "2.0-hinge" then
-        -- Unknown version, treat as needing migration to be safe
-        needs_migration = true
-      end
-      -- If version == "2.0-hinge", no migration needed (needs_migration stays false)
-
-      -- Load network weights (preserve learned weights)
+      -- Load network weights
       if algorithm_weights.nn.network then
         state.weights = algorithm_weights.nn.network.weights
         state.biases = algorithm_weights.nn.network.biases
@@ -1181,10 +1164,7 @@ local function ensure_weights(force_reload)
             state.weights[1][#state.weights[1] + 1] = new_row
           end
 
-          -- Note: first-layer optimizer moments are reset later, after optimizer state
-          -- is loaded from disk (see "Reset first-layer optimizer moments" below).
-
-          -- Backfill training history: append not_current feature to existing pairs
+          -- Backfill training history: expand existing pairs to match new input size
           -- Training history stores inputs as matrices: { {v1, v2, ..., vN} }
           -- so we must index into [1] (the inner row vector) for length checks and mutations
           if algorithm_weights.nn.training_history then
@@ -1215,84 +1195,43 @@ local function ensure_weights(force_reload)
         end
       end
 
-      -- Handle migration: clear incompatible training data, reset optimizer state
-      if needs_migration then
-        -- Old format: training_history contains {input, target, file} samples
-        -- New format: training_history contains {positive_input, negative_input, positive_file, negative_file} pairs
-        -- Cannot convert old samples to pairs → clear history
-        state.training_history = {}
+      -- Load history and stats
+      state.training_history = algorithm_weights.nn.training_history or {}
+      if algorithm_weights.nn.stats then
+        state.stats = vim.tbl_extend("force", state.stats, algorithm_weights.nn.stats)
+        state.stats.batch_timings = state.stats.batch_timings or {}
+        state.stats.avg_batch_timing = state.stats.avg_batch_timing or nil
+        state.stats.loss_history = state.stats.loss_history or {}
+      end
 
-        -- Clear loss history (loss magnitude changes from BCE to hinge)
-        state.stats.loss_history = {}
+      -- Load optimizer state
+      local saved_optimizer_type = algorithm_weights.nn.optimizer_type or "sgd"
+      local current_optimizer_type = config.optimizer or "sgd"
 
-        -- Keep other stats (samples_processed, batches_trained for informational purposes)
-        if algorithm_weights.nn.stats then
-          state.stats.samples_processed = algorithm_weights.nn.stats.samples_processed or 0
-          state.stats.batches_trained = algorithm_weights.nn.stats.batches_trained or 0
-          state.stats.batch_timings = {} -- Clear timing stats
-          state.stats.avg_batch_timing = nil
-        end
-
-        -- Reset optimizer state (gradient statistics become invalid with hinge loss)
-        state.optimizer_type = config.optimizer or "sgd"
+      if saved_optimizer_type ~= current_optimizer_type then
+        -- Optimizer changed - reset optimizer state but keep network weights
+        state.optimizer_type = current_optimizer_type
         state.optimizer_state = nil
-
-        -- Notify user of migration
-        if old_version then
-          vim.notify(
-            "neural-open: Upgraded to pairwise hinge loss (v2.0). "
-              .. "Network weights preserved, optimizer state and training history reset. "
-              .. "Loss magnitude will differ from previous BCE loss.",
-            vim.log.levels.INFO
-          )
-        end
+        vim.notify(
+          "neural-open: Optimizer changed to "
+            .. current_optimizer_type
+            .. ". Optimizer state reset, but network weights preserved.",
+          vim.log.levels.INFO
+        )
       else
-        -- No migration needed, load history and stats normally
-        state.training_history = algorithm_weights.nn.training_history or {}
-        if algorithm_weights.nn.stats then
-          state.stats = vim.tbl_extend("force", state.stats, algorithm_weights.nn.stats)
-          -- Ensure timing fields exist
-          state.stats.batch_timings = state.stats.batch_timings or {}
-          state.stats.avg_batch_timing = state.stats.avg_batch_timing or nil
-          state.stats.loss_history = state.stats.loss_history or {}
-        end
-
-        -- Handle optimizer state migration and loading (only if not migrating loss function)
-        local saved_optimizer_type = algorithm_weights.nn.optimizer_type
-        local current_optimizer_type = config.optimizer or "sgd"
-
-        if not saved_optimizer_type then
-          -- Legacy weight file without optimizer_type - default to SGD
-          state.optimizer_type = "sgd"
-          state.optimizer_state = nil
-        elseif saved_optimizer_type ~= current_optimizer_type then
-          -- Optimizer changed - reset optimizer state but keep network weights
-          state.optimizer_type = current_optimizer_type
-          state.optimizer_state = nil
-          vim.notify(
-            "neural-open: Optimizer changed to "
-              .. current_optimizer_type
-              .. ". Optimizer state reset, but network weights preserved.",
-            vim.log.levels.INFO
-          )
-        else
-          -- Same optimizer - load optimizer state
-          state.optimizer_type = saved_optimizer_type
-          state.optimizer_state = algorithm_weights.nn.optimizer_state
-        end
+        state.optimizer_type = saved_optimizer_type
+        state.optimizer_state = algorithm_weights.nn.optimizer_state
       end
 
       -- Initialize optimizer state if needed
       if state.optimizer_type == "adamw" and not state.optimizer_state then
         state.optimizer_state = init_optimizer_state("adamw", config.architecture)
       elseif state.optimizer_type == "sgd" and not state.optimizer_state then
-        -- SGD now needs state for timestep tracking (warmup)
         state.optimizer_state = { timestep = 0 }
       end
 
       -- Reset first-layer optimizer moments after input-size migration.
-      -- This runs here (not in the migration block above) because optimizer state
-      -- is loaded from disk after the weight expansion, so it isn't available earlier.
+      -- This must run after optimizer state is loaded from disk.
       if input_size_migrated and state.optimizer_state and state.optimizer_state.moments then
         local expected_input_size = config.architecture[1]
         local m = state.optimizer_state.moments

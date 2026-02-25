@@ -113,14 +113,6 @@ describe("Neural Network Core", function()
       assert.is_true(s_small < 0.001)
     end)
 
-    it("computes sigmoid derivative", function()
-      local d = nn_core.sigmoid_derivative(0.5)
-      assert.equals(0.25, d)
-
-      local d2 = nn_core.sigmoid_derivative(0.9)
-      assert.is_true(math.abs(d2 - 0.09) < 0.001)
-    end)
-
     it("applies leaky ReLU activation", function()
       -- Positive values pass through unchanged
       assert.equals(5, nn_core.leaky_relu(5))
@@ -152,30 +144,6 @@ describe("Neural Network Core", function()
 
       -- Zero edge case (treated as positive)
       assert.equals(1, nn_core.leaky_relu_derivative(0))
-    end)
-  end)
-
-  describe("Loss Functions", function()
-    it("computes binary cross entropy", function()
-      -- Perfect prediction
-      local loss1 = nn_core.binary_cross_entropy(1.0, 1.0)
-      assert.is_true(loss1 < 0.001)
-
-      -- Worst prediction
-      local loss2 = nn_core.binary_cross_entropy(0.0, 1.0)
-      assert.is_true(loss2 > 10)
-
-      -- 50% prediction
-      local loss3 = nn_core.binary_cross_entropy(0.5, 1.0)
-      assert.is_true(math.abs(loss3 - 0.693) < 0.01)
-    end)
-
-    it("computes binary cross entropy derivative", function()
-      local grad1 = nn_core.binary_cross_entropy_derivative(0.9, 1.0)
-      assert.is_true(grad1 < 0)
-
-      local grad2 = nn_core.binary_cross_entropy_derivative(0.1, 0.0)
-      assert.is_true(grad2 > 0)
     end)
   end)
 

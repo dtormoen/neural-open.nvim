@@ -105,10 +105,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Enabled by default for AdamW (100 steps)
   - Helps mitigate bias correction amplification in AdamW
 - **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
-- **Migration**: Automatically migrates from older formats:
-  - BCE-to-hinge migration: Upgrades from BCE-based format (v1.0) to pairwise hinge loss format (v2.0), preserving network weights while resetting optimizer state and training history
-  - Input-size migration: Expands first layer when new features are added (e.g., 10 to 11 inputs), using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history with heuristic values
-  - Users are notified of each upgrade
+- **Input-Size Migration**: Automatically expands the first layer when new features are added (e.g., 10 to 11 inputs), using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history with heuristic values. Users are notified of the upgrade.
 
 ### Data Persistence
 
@@ -120,11 +117,6 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI
 - **Format Versioning**: Neural network weights include version field (v2.0-hinge for pairwise format)
-- **Automatic Migration**: When loading older BCE-based weights (v1.0), automatically migrates to pairwise hinge loss format (v2.0)
-  - Preserves network weights (all learned features retained)
-  - Resets optimizer state (gradient statistics become invalid with new loss function)
-  - Clears training history (old format incompatible with pairwise structure)
-  - Provides user notification explaining the upgrade
 
 ### Integration Points
 
