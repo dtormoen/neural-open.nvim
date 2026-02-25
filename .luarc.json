@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime.version": "LuaJIT",
+  "runtime.path": [
+    "lua/?.lua",
+    "lua/?/init.lua",
+  ],
+  "diagnostics.globals": ["vim"],
+  "workspace.checkThirdParty": false,
+  "workspace.library": [
+    "lua",
+    "$VIMRUNTIME/lua",
+    "${3rd}/luv/library",
+    "~/.luarocks/share/lua/5.1/busted",
+    "~/.luarocks/share/lua/5.1/luassert",
+    "~/.luarocks/share/lua/5.1/snacks",
+  ],
+  "telemetry.enable": false
+}

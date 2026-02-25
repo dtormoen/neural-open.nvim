@@ -1,0 +1,32 @@
+# Lua development
+*.rock
+.luarocks/
+luarocks/
+.luarc.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Test coverage
+luacov.*.out
+luacov.report.out
+
+# Build artifacts
+build/
+dist/
+
+# User-trained weights
+weights.json

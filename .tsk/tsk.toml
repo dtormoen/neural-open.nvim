@@ -1,0 +1,16 @@
+# Project-specific dependencies (injected at Docker project layer)
+setup = '''
+# Install project rockspec and dev tools
+COPY neural-open-scm-1.rockspec justfile ./
+RUN just setup
+
+# Install lua-language-server for typechecking (llscheck)
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) LLS_ARCH="linux-x64" ;; \
+        arm64) LLS_ARCH="linux-arm64" ;; \
+    esac && \
+    mkdir -p ~/.local/bin ~/.local/share/lua-lang-server && \
+    curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/3.15.0/lua-language-server-3.15.0-${LLS_ARCH}.tar.gz" | tar -xz -C ~/.local/share/lua-lang-server && \
+    ln -s ~/.local/share/lua-lang-server/bin/lua-language-server ~/.local/bin/lua-language-server
+'''

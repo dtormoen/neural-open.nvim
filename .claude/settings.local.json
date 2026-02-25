@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(just precommit)",
+      "Bash(just test:*)",
+      "Bash(grep:*)",
+      "Bash(just typecheck)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

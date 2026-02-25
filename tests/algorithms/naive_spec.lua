@@ -1,0 +1,105 @@
+describe("naive algorithm", function()
+  local naive
+
+  before_each(function()
+    naive = require("neural-open.algorithms.naive")
+  end)
+
+  describe("calculate_score", function()
+    it("should sum all normalized features", function()
+      local features = {
+        match = 0.8,
+        frecency = 0.5,
+        proximity = 0.3,
+        recency = 0.2,
+      }
+
+      local score = naive.calculate_score(features)
+      assert.are.equal(1.8, score)
+    end)
+
+    it("should handle zero values", function()
+      local features = {
+        match = 0.8,
+        frecency = 0,
+        proximity = 0,
+        recency = 0.2,
+      }
+
+      local score = naive.calculate_score(features)
+      assert.are.equal(1.0, score)
+    end)
+
+    it("should handle empty features", function()
+      local features = {}
+      local score = naive.calculate_score(features)
+      assert.are.equal(0, score)
+    end)
+  end)
+
+  describe("update_weights", function()
+    it("should not modify anything (no learning)", function()
+      -- Naive algorithm doesn't learn, so this should be a no-op
+      local selected_item = { neural_rank = 5 }
+      local ranked_items = {}
+
+      -- Should not error
+      naive.update_weights(selected_item, ranked_items)
+    end)
+  end)
+
+  describe("debug_view", function()
+    it("should return debug information", function()
+      local item = {
+        nos = {
+          neural_score = 2.5,
+          normalized_features = {
+            match = 0.8,
+            frecency = 0.5,
+            proximity = 0.3,
+          },
+        },
+      }
+
+      local lines = naive.debug_view(item)
+
+      assert.is_table(lines)
+      assert.is_true(#lines > 0)
+
+      -- Check for expected content
+      local content = table.concat(lines, "\n")
+      assert.is_true(content:find("Naive Algorithm") ~= nil)
+      assert.is_true(content:find("2.5") ~= nil) -- Score should be shown
+    end)
+
+    it("should display transition feature in debug output", function()
+      local item = {
+        nos = {
+          neural_score = 2.5,
+          normalized_features = {
+            match = 0.8,
+            frecency = 0.5,
+            proximity = 0.3,
+            transition = 0.4,
+          },
+        },
+      }
+
+      local lines = naive.debug_view(item)
+      local content = table.concat(lines, "\n")
+
+      -- Verify transition appears in the normalized features section
+      assert.is_true(content:find("Transition") ~= nil, "Debug view should display transition feature")
+      assert.is_true(
+        content:find("0.4") ~= nil or content:find("0.4000") ~= nil,
+        "Debug view should show transition value"
+      )
+    end)
+  end)
+
+  describe("get_name", function()
+    it("should return algorithm name", function()
+      assert.are.equal("naive", naive.get_name())
+    end)
+  end)
+end)
