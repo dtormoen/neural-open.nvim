@@ -40,7 +40,7 @@ The plugin uses a dedicated `nos` field on picker items to encapsulate all neura
 - **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
 - **ctx**: Reference to shared session context (contains cwd, current_file, current_file_trigrams, recent_files, alternate_buf)
 
-This structure provides clean separation between plugin-specific data and native Snacks picker fields. The scoring pipeline follows: raw_features → normalized_features → (apply weights) → neural_score. Component scores are calculated on-the-fly from normalized features and weights when needed using `weights.calculate_components()`.
+This structure provides clean separation between plugin-specific data and native Snacks picker fields. The scoring pipeline follows: raw_features → normalized_features → (apply weights) → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Component scores are calculated on-the-fly from normalized features and weights when needed using `weights.calculate_components()`.
 
 ### Scoring System
 
@@ -99,6 +99,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Linearly increases learning rate from 10% to 100% over first N steps
   - Enabled by default for AdamW (100 steps)
   - Helps mitigate bias correction amplification in AdamW
+- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score()` runs a tight loop with zero table allocations. The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
 - **Migration**: Automatically migrates from older BCE-based format (v1.0) to pairwise hinge loss format (v2.0)
   - Preserves network weights while resetting optimizer state and training history
   - Users are notified of the upgrade

@@ -200,7 +200,7 @@ Each file receives a score based on 10 features, all normalized to [0,1]:
 
 ### Neural Network Algorithm (default)
 
-A multi-layer perceptron that takes the 10 normalized features as input and outputs a ranking score. Trained online using pairwise hinge loss: when you select a file, the network learns from (selected, non-selected) pairs constructed from the top-ranked candidates. Uses batch normalization, dropout, and Leaky ReLU activations. Match/virtual_name features are randomly dropped during training to force the network to learn from contextual features (frecency, proximity, etc.), improving ranking before any query is typed. Supports AdamW (default) and SGD optimizers with optional learning rate warmup.
+A multi-layer perceptron that takes the 10 normalized features as input and outputs a ranking score. Trained online using pairwise hinge loss: when you select a file, the network learns from (selected, non-selected) pairs constructed from the top-ranked candidates. Uses batch normalization and Leaky ReLU activations during training; at inference time, batch normalization is fused into the weight matrices so scoring runs with zero allocations per keystroke. Match/virtual_name features are randomly dropped during training to force the network to learn from contextual features (frecency, proximity, etc.), improving ranking before any query is typed. Supports AdamW (default) and SGD optimizers with optional learning rate warmup.
 
 ### Classic Algorithm
 

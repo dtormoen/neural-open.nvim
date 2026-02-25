@@ -1,5 +1,6 @@
 --- Neural Network scoring algorithm
 local nn_core = require("neural-open.algorithms.nn_core")
+local math_exp = math.exp
 local M = {}
 
 -- Module state
@@ -15,6 +16,7 @@ local state = {
   dropout_masks = nil, -- Store dropout masks for backward pass
   optimizer_type = "sgd", -- Current optimizer type
   optimizer_state = nil, -- Optimizer-specific state (lazy initialized)
+  inference_cache = nil, -- Fused weights/biases for fast inference
   stats = {
     samples_processed = 0,
     batches_trained = 0,
@@ -1026,10 +1028,93 @@ local function ensure_config()
   return state.config
 end
 
+--- Prepare fused weights/biases for fast inference by folding batch normalization
+--- into the weight matrices. This eliminates all batch norm computation at inference time.
+--- Also transposes weight matrices for cache-friendly access patterns.
+local function prepare_inference_cache()
+  if not state.weights or #state.weights == 0 then
+    return
+  end
+
+  local num_layers = #state.weights
+  local weights_t = {}
+  local biases = {}
+  local buffers = {}
+
+  for i = 1, num_layers do
+    local w = state.weights[i]
+    local b = state.biases[i]
+    local in_size = #w
+    local out_size = #w[1]
+
+    if i < num_layers and state.gammas and state.gammas[i] and state.betas and state.betas[i] then
+      -- Hidden layer: fuse batch norm into weights and biases
+      local gamma = state.gammas[i][1]
+      local beta = state.betas[i][1]
+      local mean = state.running_means[i][1]
+      local var = state.running_vars[i][1]
+
+      -- Compute scale and build transposed fused weight matrix + flat fused bias
+      local wt_layer = {}
+      local b_layer = {}
+      for j = 1, out_size do
+        local scale = gamma[j] / math.sqrt(var[j] + 1e-8)
+        b_layer[j] = scale * (b[1][j] - mean[j]) + beta[j]
+        local wt_j = {}
+        for k = 1, in_size do
+          wt_j[k] = w[k][j] * scale
+        end
+        wt_layer[j] = wt_j
+      end
+      weights_t[i] = wt_layer
+      biases[i] = b_layer
+    else
+      -- Output layer (or layer without batch norm): transpose weights, flatten bias
+      local wt_layer = {}
+      local b_layer = {}
+      for j = 1, out_size do
+        b_layer[j] = b[1][j]
+        local wt_j = {}
+        for k = 1, in_size do
+          wt_j[k] = w[k][j]
+        end
+        wt_layer[j] = wt_j
+      end
+      weights_t[i] = wt_layer
+      biases[i] = b_layer
+    end
+
+    -- Pre-allocate output buffer for this layer
+    local buf = {}
+    for j = 1, out_size do
+      buf[j] = 0
+    end
+    buffers[i] = buf
+  end
+
+  -- Pre-allocate input buffer
+  local input_size = #state.weights[1] -- rows of first weight matrix = input features
+  local input_buf = {}
+  for j = 1, input_size do
+    input_buf[j] = 0
+  end
+
+  state.inference_cache = {
+    weights_t = weights_t,
+    biases = biases,
+    buffers = buffers,
+    input_buf = input_buf,
+    num_layers = num_layers,
+  }
+end
+
 --- Ensure the network state is initialized
 ---@param force_reload boolean? Force reload weights even if already loaded
 local function ensure_weights(force_reload)
   if not state.weights or force_reload then
+    -- Invalidate inference cache when reloading weights
+    state.inference_cache = nil
+
     -- Ensure config is loaded
     local config = ensure_config()
 
@@ -1185,6 +1270,9 @@ local function ensure_weights(force_reload)
       state.running_means = running_means
       state.running_vars = running_vars
     end
+
+    -- Build fused inference cache for fast calculate_score()
+    prepare_inference_cache()
   end
 end
 
@@ -1195,29 +1283,74 @@ end
 function M.calculate_score(normalized_features)
   ensure_weights()
 
-  -- Convert features to input (single sample as batch of 1)
-  -- No match dropout during inference
-  local input = features_to_input(normalized_features, false)
+  -- Fallback to general forward_pass when inference cache unavailable (e.g., empty/invalid weights)
+  if not state.inference_cache then
+    local input = features_to_input(normalized_features, false)
+    local activations = forward_pass(
+      input,
+      state.weights,
+      state.biases,
+      state.gammas,
+      state.betas,
+      state.running_means,
+      state.running_vars,
+      false,
+      nil,
+      false
+    )
+    local output = activations[#activations][1][1]
+    return output * 100
+  end
 
-  -- Forward pass in inference mode (no dropout, return sigmoid output)
-  local activations = forward_pass(
-    input,
-    state.weights,
-    state.biases,
-    state.gammas,
-    state.betas,
-    state.running_means,
-    state.running_vars,
-    false, -- inference mode
-    nil, -- no dropout
-    false -- return sigmoid output (not logits)
-  )
+  local cache = state.inference_cache --[[@as table]]
+  local num_layers = cache.num_layers
 
-  -- Extract sigmoid output (already in [0,1])
-  local output = activations[#activations][1][1]
+  -- Fill pre-allocated input buffer (feature order must match training)
+  local current = cache.input_buf
+  current[1] = normalized_features.match or 0
+  current[2] = normalized_features.virtual_name or 0
+  current[3] = normalized_features.frecency or 0
+  current[4] = normalized_features.open or 0
+  current[5] = normalized_features.alt or 0
+  current[6] = normalized_features.proximity or 0
+  current[7] = normalized_features.project or 0
+  current[8] = normalized_features.recency or 0
+  current[9] = normalized_features.trigram or 0
+  current[10] = normalized_features.transition or 0
 
-  -- Scale sigmoid output to reasonable range (0-100) for Snacks picker
-  return output * 100
+  -- Forward pass through fused layers
+  for layer = 1, num_layers do
+    local wt = cache.weights_t[layer]
+    local b = cache.biases[layer]
+    local buf = cache.buffers[layer]
+    local out_size = #b
+
+    for j = 1, out_size do
+      local wt_j = wt[j]
+      local sum = b[j]
+      for k = 1, #current do
+        sum = sum + current[k] * wt_j[k]
+      end
+
+      if layer < num_layers then
+        -- Leaky ReLU inline (alpha=0.01)
+        buf[j] = sum > 0 and sum or 0.01 * sum
+      else
+        -- Sigmoid inline for output layer
+        if sum < -500 then
+          buf[j] = 0
+        elseif sum > 500 then
+          buf[j] = 1
+        else
+          buf[j] = 1 / (1 + math_exp(-sum))
+        end
+      end
+    end
+
+    current = buf
+  end
+
+  return current[1] * 100
 end
 
 --- Update neural network weights based on user selection (with optional latency tracking)
@@ -1316,6 +1449,9 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
     latency.start(latency_ctx, "nn.training", "async.weight_update")
     train_on_batches(batches, latency_ctx)
     latency.finish(latency_ctx, "nn.training")
+
+    -- Rebuild inference cache after training modified weights/batch norm parameters
+    prepare_inference_cache()
 
     -- Inject training phase metrics from existing stats (post-hoc metadata)
     if state.stats.avg_batch_timing then
@@ -1884,6 +2020,23 @@ if _G._TEST then
   function M._get_stats()
     return state.stats
   end
+
+  function M._forward_pass(input)
+    return forward_pass(
+      input,
+      state.weights,
+      state.biases,
+      state.gammas,
+      state.betas,
+      state.running_means,
+      state.running_vars,
+      false, -- inference mode
+      nil, -- no dropout
+      false -- return sigmoid output
+    )
+  end
+
+  M._features_to_input = features_to_input
 end
 
 return M

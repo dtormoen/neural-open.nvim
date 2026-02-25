@@ -1,5 +1,11 @@
 local M = {}
 
+local math_exp = math.exp
+
+-- Reusable temp items for matcher calls in on_match_handler (avoids 2 allocations per item per keystroke)
+local _mock_item = { text = "", idx = 1, score = 0 }
+local _temp_item = { text = "", idx = 1, score = 0 }
+
 ---@param path string
 ---@return string
 local function normalize_path(path)
@@ -138,61 +144,26 @@ end
 ---@param raw_features NosRawFeatures
 ---@return NosNormalizedFeatures
 function M.normalize_features(raw_features)
-  local normalized = {}
+  local match_score = raw_features.match
+  local vname_score = raw_features.virtual_name
 
-  -- Match score normalization using sigmoid
-  normalized.match = M.normalize_match_score(raw_features.match)
-
-  -- Virtual name normalization using sigmoid
-  normalized.virtual_name = M.normalize_virtual_name_score(raw_features.virtual_name)
-
-  -- Frecency normalization: 1 - 1/(1+x)
-  normalized.frecency = raw_features.frecency > 0 and (1 - 1 / (1 + raw_features.frecency / 8)) or 0
-
-  -- Binary features are already normalized
-  normalized.open = raw_features.open or 0
-  normalized.alt = raw_features.alt or 0
-
-  -- Proximity is already 0-1 from calculation
-  normalized.proximity = raw_features.proximity or 0
-
-  -- Project is binary
-  normalized.project = raw_features.project or 0
-
-  -- Recency normalization: linear decay (max - rank + 1) / max
+  local recency_val = 0
   if raw_features.recency and raw_features.recency > 0 then
-    normalized.recency = M.calculate_recency_score(raw_features.recency)
-  else
-    normalized.recency = 0
+    recency_val = M.calculate_recency_score(raw_features.recency)
   end
 
-  -- Trigram is already normalized (Dice coefficient is 0-1)
-  normalized.trigram = raw_features.trigram or 0
-
-  -- Transition is already normalized (1-1/(1+count) formula produces [0,1])
-  normalized.transition = raw_features.transition or 0
-
-  return normalized
-end
-
---- Normalize a match score to [0,1] using sigmoid
----@param score number?
----@return number
-function M.normalize_match_score(score)
-  if not score or score <= 0 then
-    return 0
-  end
-  -- Snacks match scores typically range from ~10-200 for good matches
-  -- We use a sigmoid similar to smart-open.nvim but adapted for positive scores
-  -- Scale factor 0.02 works well for the 10-200 range
-  return 1 / (1 + math.exp(-0.02 * score + 2))
-end
-
---- Normalize a virtual name score to [0,1] using sigmoid
----@param score number?
----@return number
-function M.normalize_virtual_name_score(score)
-  return M.normalize_match_score(score)
+  return {
+    match = (match_score and match_score > 0) and (1 / (1 + math_exp(-0.02 * match_score + 2))) or 0,
+    virtual_name = (vname_score and vname_score > 0) and (1 / (1 + math_exp(-0.02 * vname_score + 2))) or 0,
+    frecency = raw_features.frecency > 0 and (1 - 1 / (1 + raw_features.frecency / 8)) or 0,
+    open = raw_features.open or 0,
+    alt = raw_features.alt or 0,
+    proximity = raw_features.proximity or 0,
+    project = raw_features.project or 0,
+    recency = recency_val,
+    trigram = raw_features.trigram or 0,
+    transition = raw_features.transition or 0,
+  }
 end
 
 --- Handle match scoring for an item during search
@@ -230,19 +201,17 @@ function M.on_match_handler(matcher, item)
   -- Calculate virtual name score now that we have the query
   local raw_virtual_name_score = 0
   if current_query ~= "" and item.nos.virtual_name then
-    -- Reuse the existing matcher that was passed in
-    local mock_item = { text = item.nos.virtual_name, idx = 1, score = 0 }
-    raw_virtual_name_score = matcher:match(mock_item) or 0
+    _mock_item.text = item.nos.virtual_name
+    _mock_item.score = 0
+    raw_virtual_name_score = matcher:match(_mock_item) or 0
   end
 
   -- Calculate base match score
   local raw_match_score = 0
   if current_query ~= "" then
-    -- Get the pure match score by calling the matcher directly
-    -- This gives us the base score without any bonuses (frecency, cwd, etc.)
-    -- We create a temporary item to avoid modifying the original
-    local temp_item = { text = item.text or item.file or "", idx = 1, score = 0 }
-    raw_match_score = matcher:match(temp_item) or 0
+    _temp_item.text = item.text or item.file or ""
+    _temp_item.score = 0
+    raw_match_score = matcher:match(_temp_item) or 0
   end
 
   -- Update dynamic raw features

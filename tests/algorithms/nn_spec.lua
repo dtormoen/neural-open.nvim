@@ -2982,4 +2982,138 @@ describe("Neural Network Algorithm", function()
       assert.is_not_nil(saved_weights.nn.network.weights)
     end)
   end)
+
+  describe("Fast Inference Cache", function()
+    it("produces identical results to general forward_pass", function()
+      -- Test with multiple architectures to cover different layer counts
+      local architectures = {
+        { arch = { 10, 4, 1 }, dropout = { 0 } },
+        { arch = { 10, 8, 4, 1 }, dropout = { 0, 0 } },
+        { arch = { 10, 16, 16, 8, 1 }, dropout = { 0, 0, 0 } },
+      }
+
+      for _, spec in ipairs(architectures) do
+        -- Enable test helpers before loading module
+        _G._TEST = true
+        package.loaded["neural-open.algorithms.nn"] = nil
+        package.loaded["neural-open.algorithms.nn_core"] = nil
+        nn = require("neural-open.algorithms.nn")
+
+        local helpers = require("tests.helpers")
+        local config = helpers.create_algorithm_config(
+          "nn",
+          vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
+            architecture = spec.arch,
+            dropout_rates = spec.dropout,
+          })
+        )
+        nn.init(config.algorithm_config.nn)
+
+        local features = {
+          match = 0.75,
+          virtual_name = 0.3,
+          frecency = 0.5,
+          open = 1.0,
+          alt = 0.0,
+          proximity = 0.6,
+          project = 1.0,
+          recency = 0.4,
+          trigram = 0.8,
+          transition = 0.2,
+        }
+
+        -- Get fast path score via calculate_score
+        local fast_score = nn.calculate_score(features)
+
+        -- Get reference score via general forward_pass
+        local input = nn._features_to_input(features, false)
+        local activations = nn._forward_pass(input)
+        local reference_score = activations[#activations][1][1] * 100
+
+        -- Must be identical within floating point tolerance
+        assert.is_true(
+          math.abs(fast_score - reference_score) < 1e-10,
+          string.format(
+            "Arch %s: fast=%.15f reference=%.15f diff=%.2e",
+            table.concat(spec.arch, "x"),
+            fast_score,
+            reference_score,
+            math.abs(fast_score - reference_score)
+          )
+        )
+
+        _G._TEST = nil
+      end
+    end)
+
+    it("stays consistent after training updates weights", function()
+      -- Enable test helpers before loading module
+      _G._TEST = true
+      package.loaded["neural-open.algorithms.nn"] = nil
+      package.loaded["neural-open.algorithms.nn_core"] = nil
+      nn = require("neural-open.algorithms.nn")
+
+      local helpers = require("tests.helpers")
+      local config = helpers.create_algorithm_config(
+        "nn",
+        vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
+          architecture = { 10, 8, 4, 1 },
+          dropout_rates = { 0, 0 },
+          batch_size = 2,
+          history_size = 20,
+        })
+      )
+      nn.init(config.algorithm_config.nn)
+
+      local weights_mock = helpers.create_weights_mock()
+      package.loaded["neural-open.weights"] = weights_mock.mock
+
+      local features = {
+        match = 0.6,
+        virtual_name = 0.4,
+        frecency = 0.3,
+        open = 0.0,
+        alt = 1.0,
+        proximity = 0.5,
+        project = 1.0,
+        recency = 0.7,
+        trigram = 0.2,
+        transition = 0.1,
+      }
+
+      -- Train the network to modify weights
+      local selected = create_mock_item("selected.lua", features)
+      local other = create_mock_item("other.lua", {
+        match = 0.9,
+        virtual_name = 0.0,
+        frecency = 0.1,
+        open = 1.0,
+        alt = 0.0,
+        proximity = 0.2,
+        project = 1.0,
+        recency = 0.1,
+        trigram = 0.1,
+        transition = 0.0,
+      })
+      nn.update_weights(selected, { other, selected })
+
+      -- After training, fast path should still match reference
+      local fast_score = nn.calculate_score(features)
+      local input = nn._features_to_input(features, false)
+      local activations = nn._forward_pass(input)
+      local reference_score = activations[#activations][1][1] * 100
+
+      assert.is_true(
+        math.abs(fast_score - reference_score) < 1e-10,
+        string.format(
+          "Post-training: fast=%.15f reference=%.15f diff=%.2e",
+          fast_score,
+          reference_score,
+          math.abs(fast_score - reference_score)
+        )
+      )
+
+      _G._TEST = nil
+    end)
+  end)
 end)
