@@ -196,8 +196,7 @@ local function create_context(paths)
 
   local current_file = "/project/src/components/App.tsx"
   local current_file_vname = scorer.get_virtual_name(current_file, config.special_files)
-  local current_file_tris = trigrams.compute_trigrams(current_file_vname)
-  local current_file_tris_size = trigrams.count_trigrams(current_file_tris)
+  local current_file_tris, current_file_tris_size = trigrams.compute_trigrams(current_file_vname)
 
   -- Build recency map from first 100 paths
   local recent_files = {}
@@ -413,20 +412,11 @@ for _, size in ipairs(REPO_SIZES) do
     end
   end)
 
-  -- 5. Trigram computation (isolated from static features)
+  -- 5. Trigram computation (zero-allocation direct path, used in production)
   local virtual_names = {}
   for i, item in ipairs(items) do
     virtual_names[i] = item.nos.virtual_name or item.nos.normalized_path:match("[^/]+$") or ""
   end
-
-  local trigram_median = benchmark(function()
-    for i = 1, #virtual_names do
-      local target_tris = trigrams.compute_trigrams(virtual_names[i])
-      trigrams.dice_coefficient(context.current_file_trigrams, target_tris)
-    end
-  end)
-
-  -- 5b. Trigram computation (zero-allocation direct path, used in production)
   local trigram_direct_median = benchmark(function()
     for i = 1, #virtual_names do
       trigrams.dice_coefficient_direct(
@@ -498,7 +488,6 @@ for _, size in ipairs(REPO_SIZES) do
   print(string.format("Per-keystroke:      %s", format_timing(keystroke_median, size)))
   print(string.format("  normalize:        %s", format_timing(normalize_median, size)))
   print(string.format("  nn_inference:     %s", format_timing(nn_median, size)))
-  print(string.format("  trigrams (alloc): %s", format_timing(trigram_median, size)))
   print(string.format("  trigrams (direct):%s", format_timing(trigram_direct_median, size)))
   print(string.format("Transform phase:    %s", format_timing(transform_median, size)))
   print(string.format("Weight loading:     %8.2fms total (one-time)", load_median / 1e6))

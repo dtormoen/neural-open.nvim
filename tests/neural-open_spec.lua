@@ -165,11 +165,11 @@ describe("neural-open", function()
       it("should handle trigram similarity", function()
         local normalized_path = "/path/to/index.js"
         local tris = require("neural-open.trigrams")
-        local current_file_trigrams = tris.compute_trigrams("helper.js")
+        local current_file_trigrams, current_file_trigrams_size = tris.compute_trigrams("helper.js")
         local context = {
           cwd = "/path",
           current_file_trigrams = current_file_trigrams,
-          current_file_trigrams_size = tris.count_trigrams(current_file_trigrams),
+          current_file_trigrams_size = current_file_trigrams_size,
         }
 
         local raw_features =

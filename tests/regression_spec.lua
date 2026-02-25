@@ -135,7 +135,7 @@ describe("scoring pipeline regression", function()
         local trigrams = require("neural-open.trigrams")
         local current_file_virtual_name =
           scorer.get_virtual_name(test_case.context.current_file, neural_open.config.special_files)
-        local current_file_trigrams = trigrams.compute_trigrams(current_file_virtual_name)
+        local current_file_trigrams, current_file_trigrams_size = trigrams.compute_trigrams(current_file_virtual_name)
 
         -- Build recent_files map with {recent_rank = N} structure
         local recent_files = {}
@@ -149,7 +149,7 @@ describe("scoring pipeline regression", function()
           cwd = test_case.context.cwd,
           current_file = test_case.context.current_file,
           current_file_trigrams = current_file_trigrams,
-          current_file_trigrams_size = current_file_trigrams and trigrams.count_trigrams(current_file_trigrams) or 0,
+          current_file_trigrams_size = current_file_trigrams_size,
           current_file_virtual_name = current_file_virtual_name,
           algorithm = algorithms.nn,
           transition_scores = test_case.context.transition_scores or {},

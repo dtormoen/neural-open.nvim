@@ -4,69 +4,37 @@ local string_byte = string.byte
 local string_lower = string.lower
 
 ---@param text string
----@return table<number, boolean>
+---@return table<number, boolean>, number
 function M.compute_trigrams(text)
   local tris = {}
 
   if not text or text == "" then
-    return tris
+    return tris, 0
   end
 
   text = string_lower(text)
   local len = #text
 
   if len < 3 then
-    return tris
+    return tris, 0
   end
 
   -- Use packed integer keys (b1*65536 + b2*256 + b3) instead of string.sub()
   -- to avoid per-trigram string allocation while maintaining correct Dice coefficients.
   -- Slide a 3-byte window using byte arithmetic.
+  local count = 0
   local b1, b2 = string_byte(text, 1, 2)
   for i = 3, len do
     local b3 = string_byte(text, i)
-    tris[b1 * 65536 + b2 * 256 + b3] = true
+    local key = b1 * 65536 + b2 * 256 + b3
+    if not tris[key] then
+      tris[key] = true
+      count = count + 1
+    end
     b1, b2 = b2, b3
   end
 
-  return tris
-end
-
----@param trigrams1 table<number, boolean>
----@param trigrams2 table<number, boolean>
----@return number
-function M.dice_coefficient(trigrams1, trigrams2)
-  local size1 = 0
-  local size2 = 0
-  local intersection = 0
-
-  for tri in pairs(trigrams1) do
-    size1 = size1 + 1
-    if trigrams2[tri] then
-      intersection = intersection + 1
-    end
-  end
-
-  for _ in pairs(trigrams2) do
-    size2 = size2 + 1
-  end
-
-  if size1 == 0 and size2 == 0 then
-    return 0
-  end
-
-  return (2 * intersection) / (size1 + size2)
-end
-
---- Count the number of entries in a trigrams table
----@param tris table<number, boolean>
----@return number
-function M.count_trigrams(tris)
-  local count = 0
-  for _ in pairs(tris) do
-    count = count + 1
-  end
-  return count
+  return tris, count
 end
 
 -- Module-level state for generation counter (zero-allocation dedup).

@@ -94,11 +94,11 @@ describe("trigram scoring integration", function()
 
     before_each(function()
       local tris = require("neural-open.trigrams")
-      local current_file_trigrams = tris.compute_trigrams("user_controller.rb")
+      local current_file_trigrams, current_file_trigrams_size = tris.compute_trigrams("user_controller.rb")
       context = {
         current_file = "/path/to/user_controller.rb",
         current_file_trigrams = current_file_trigrams,
-        current_file_trigrams_size = tris.count_trigrams(current_file_trigrams),
+        current_file_trigrams_size = current_file_trigrams_size,
         cwd = "/path",
       }
     end)
@@ -134,8 +134,7 @@ describe("trigram scoring integration", function()
       local tris = require("neural-open.trigrams")
 
       context.current_file = "/path/to/helpers/index.js"
-      context.current_file_trigrams = tris.compute_trigrams("helpers/index.js")
-      context.current_file_trigrams_size = tris.count_trigrams(context.current_file_trigrams)
+      context.current_file_trigrams, context.current_file_trigrams_size = tris.compute_trigrams("helpers/index.js")
 
       local raw_features =
         scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "components/index.js")
@@ -180,11 +179,11 @@ describe("trigram scoring integration", function()
       weights_module.save_weights("classic", test_weights)
 
       local tris = require("neural-open.trigrams")
-      local current_file_trigrams = tris.compute_trigrams("test_helper.js")
+      local current_file_trigrams, current_file_trigrams_size = tris.compute_trigrams("test_helper.js")
       local context = {
         current_file = "/path/to/test_helper.js",
         current_file_trigrams = current_file_trigrams,
-        current_file_trigrams_size = tris.count_trigrams(current_file_trigrams),
+        current_file_trigrams_size = current_file_trigrams_size,
         cwd = "/path",
       }
 
