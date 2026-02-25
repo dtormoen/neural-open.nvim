@@ -1,0 +1,215 @@
+{
+  "_comment": "Regression test cases for the scoring pipeline. If expected scores change, the commit MUST explain why.",
+  "test_cases": [
+    {
+      "context": {
+        "alternate_buf": 3,
+        "current_file": "/project/lua/mylib/init.lua",
+        "cwd": "/project",
+        "recent_files": {
+          "/project/lua/mylib/config.lua": 3,
+          "/project/lua/mylib/utils.lua": 1,
+          "/project/tests/init_spec.lua": 2
+        },
+        "transition_scores": {
+          "/project/lua/mylib/config.lua": 0.1,
+          "/project/lua/mylib/utils.lua": 0.5
+        }
+      },
+      "items": [
+        {
+          "buf": 2,
+          "expected_normalized_path": "/project/lua/mylib/utils.lua",
+          "file": "lua/mylib/utils.lua",
+          "frecency": 15
+        },
+        {
+          "buf": 4,
+          "expected_normalized_path": "/project/lua/mylib/config.lua",
+          "file": "lua/mylib/config.lua",
+          "frecency": 5
+        },
+        {
+          "expected_normalized_path": "/project/tests/init_spec.lua",
+          "file": "tests/init_spec.lua",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/project/README.md",
+          "file": "README.md",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/project/lua/other/helper.lua",
+          "file": "lua/other/helper.lua",
+          "frecency": 0
+        }
+      ],
+      "name": "Lua workspace with mixed features",
+      "phases": [
+        {
+          "expected_scores": {
+            "/project/README.md": 4.654573,
+            "/project/lua/mylib/config.lua": 61.621015,
+            "/project/lua/mylib/utils.lua": 50.953347,
+            "/project/lua/other/helper.lua": 18.440803,
+            "/project/tests/init_spec.lua": 40.843386
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        },
+        {
+          "expected_scores": {
+            "/project/README.md": 4.654573,
+            "/project/lua/mylib/config.lua": 38.866578,
+            "/project/lua/mylib/utils.lua": 50.953347,
+            "/project/lua/other/helper.lua": 18.440803,
+            "/project/tests/init_spec.lua": 40.843386
+          },
+          "match_scores": {
+            "README.md": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "lua/mylib/config.lua": {
+              "match": 140,
+              "virtual_name": 0
+            },
+            "lua/mylib/utils.lua": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "lua/other/helper.lua": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "tests/init_spec.lua": {
+              "match": 0,
+              "virtual_name": 0
+            }
+          },
+          "name": "search for 'conf'",
+          "query": "conf"
+        }
+      ]
+    },
+    {
+      "context": {
+        "alternate_buf": 10,
+        "current_file": "/app/src/components/Button.tsx",
+        "cwd": "/app",
+        "recent_files": {
+          "/app/src/components/index.tsx": 1,
+          "/app/src/utils/index.ts": 3
+        },
+        "transition_scores": {
+          "/app/src/components/index.tsx": 0.8
+        }
+      },
+      "items": [
+        {
+          "buf": 10,
+          "expected_normalized_path": "/app/src/components/index.tsx",
+          "file": "src/components/index.tsx",
+          "frecency": 20
+        },
+        {
+          "expected_normalized_path": "/app/src/utils/index.ts",
+          "file": "src/utils/index.ts",
+          "frecency": 3
+        },
+        {
+          "expected_normalized_path": "/app/src/components/Header.tsx",
+          "file": "src/components/Header.tsx",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/app/src/App.tsx",
+          "file": "src/App.tsx",
+          "frecency": 0
+        }
+      ],
+      "name": "TypeScript project with special files and path normalization",
+      "phases": [
+        {
+          "expected_scores": {
+            "/app/src/App.tsx": 20.240244,
+            "/app/src/components/Header.tsx": 30.707923,
+            "/app/src/components/index.tsx": 90.563466,
+            "/app/src/utils/index.ts": 61.857206
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        },
+        {
+          "expected_scores": {
+            "/app/src/App.tsx": 20.240244,
+            "/app/src/components/Header.tsx": 30.707923,
+            "/app/src/components/index.tsx": 98.406041,
+            "/app/src/utils/index.ts": 96.148556
+          },
+          "match_scores": {
+            "src/App.tsx": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "src/components/Header.tsx": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "src/components/index.tsx": {
+              "match": 80,
+              "virtual_name": 90
+            },
+            "src/utils/index.ts": {
+              "match": 75,
+              "virtual_name": 85
+            }
+          },
+          "name": "search for 'idx'",
+          "query": "idx"
+        }
+      ]
+    },
+    {
+      "context": {
+        "alternate_buf": -1,
+        "current_file": "/project/src/main.lua",
+        "cwd": "/project/",
+        "recent_files": {
+          "/project/src/lib.lua": 2
+        },
+        "transition_scores": {
+          "/project/src/lib.lua": 0.3
+        }
+      },
+      "items": [
+        {
+          "expected_normalized_path": "/project/src/lib.lua",
+          "file": "src/lib.lua",
+          "frecency": 8
+        },
+        {
+          "expected_normalized_path": "/project/src/main.lua",
+          "file": "src/main.lua",
+          "frecency": 0
+        }
+      ],
+      "name": "Path normalization edge case with trailing slash",
+      "phases": [
+        {
+          "expected_scores": {
+            "/project/src/lib.lua": 81.789374,
+            "/project/src/main.lua": 59.940358
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        }
+      ]
+    }
+  ],
+  "tolerance": 0.001
+}
