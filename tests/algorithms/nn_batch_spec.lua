@@ -1,6 +1,5 @@
 -- Tests for batch processing and batch normalization in neural network
 local nn_core = require("neural-open.algorithms.nn_core")
-local nn = require("neural-open.algorithms.nn")
 
 describe("Neural Network Batch Processing", function()
   describe("batch operations", function()
@@ -305,10 +304,37 @@ describe("Neural Network Batch Processing", function()
   end)
 
   describe("integration with nn module", function()
+    local orig_nn, orig_weights
+
+    before_each(function()
+      orig_nn = package.loaded["neural-open.algorithms.nn"]
+      orig_weights = package.loaded["neural-open.weights"]
+    end)
+
+    after_each(function()
+      package.loaded["neural-open.algorithms.nn"] = orig_nn
+      package.loaded["neural-open.weights"] = orig_weights
+    end)
+
     it("trains on batches correctly", function()
-      pending("Flaky test - investigating non-deterministic training behavior (pre-existing issue)")
-      -- Initialize the neural network (10 features: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition)
-      nn.init({
+      -- Fresh nn module: clear cached module to reset all internal state
+      -- (prevents interference from other test files that may have modified nn state)
+      package.loaded["neural-open.algorithms.nn"] = nil
+
+      -- Mock weights module BEFORE requiring nn (so ensure_weights uses our mock)
+      local saved_weights = nil
+      package.loaded["neural-open.weights"] = {
+        get_weights = function()
+          return saved_weights or {}
+        end,
+        save_weights = function(_, weights)
+          saved_weights = weights
+        end,
+      }
+
+      local nn_test = require("neural-open.algorithms.nn")
+
+      nn_test.init({
         architecture = { 10, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.1,
@@ -326,7 +352,9 @@ describe("Neural Network Batch Processing", function()
         dropout_rates = { 0 },
       })
 
-      -- Create mock normalized features
+      -- Fixed seed AFTER init (overrides os.time() seed) so ensure_weights() initializes deterministically
+      math.randomseed(42)
+
       local features1 = {
         match = 0.8,
         virtual_name = 0.2,
@@ -352,11 +380,10 @@ describe("Neural Network Batch Processing", function()
         transition = 0.0,
       }
 
-      -- Calculate initial scores
-      local score1_before = nn.calculate_score(features1)
-      local score2_before = nn.calculate_score(features2)
+      -- Calculate initial scores (triggers ensure_weights → deterministic random init)
+      local score1_before = nn_test.calculate_score(features1)
+      local score2_before = nn_test.calculate_score(features2)
 
-      -- Create mock items
       local selected_item = {
         file = "test1.lua",
         nos = { normalized_features = features1 },
@@ -367,21 +394,12 @@ describe("Neural Network Batch Processing", function()
         selected_item,
       }
 
-      -- Mock weights module to capture saved weights
-      local saved_weights = nil
-      package.loaded["neural-open.weights"] = {
-        get_weights = function()
-          return saved_weights or {}
-        end,
-        save_weights = function(algo_name, weights)
-          saved_weights = weights
-        end,
-      }
+      -- Train for multiple iterations to ensure convergence
+      for _ = 1, 10 do
+        nn_test.update_weights(selected_item, ranked_items)
+      end
 
-      -- Train the network
-      nn.update_weights(selected_item, ranked_items)
-
-      -- Verify weights were updated
+      -- Verify weights were saved
       assert.is_not_nil(saved_weights)
       assert.is_not_nil(saved_weights.nn)
       assert.is_not_nil(saved_weights.nn.network)
@@ -389,17 +407,23 @@ describe("Neural Network Batch Processing", function()
       assert.is_not_nil(saved_weights.nn.network.gammas)
       assert.is_not_nil(saved_weights.nn.network.betas)
 
-      -- Load the updated weights
-      nn.load_weights()
+      -- Load the updated weights and rebuild inference cache
+      nn_test.load_weights()
 
       -- Calculate scores after training
-      local score1_after = nn.calculate_score(features1)
-      local score2_after = nn.calculate_score(features2)
+      local score1_after = nn_test.calculate_score(features1)
+      local score2_after = nn_test.calculate_score(features2)
 
       -- Selected item should have higher score after training
       assert.is_true(
         score1_after > score2_after or (score1_after - score1_before) > (score2_after - score2_before),
-        "Selected item score should improve more than non-selected"
+        string.format(
+          "Selected item score should improve more than non-selected (s1: %.4f→%.4f, s2: %.4f→%.4f)",
+          score1_before,
+          score1_after,
+          score2_before,
+          score2_after
+        )
       )
     end)
   end)
