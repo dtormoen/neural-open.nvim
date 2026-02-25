@@ -24,7 +24,7 @@ describe("Neural Network Algorithm", function()
   -- Standard test configuration used across most tests
   -- Smaller network and simpler params for faster test execution
   local STANDARD_TEST_CONFIG = {
-    architecture = { 10, 4, 1 },
+    architecture = { 11, 4, 1 },
     optimizer = "sgd",
     learning_rate = 0.1,
     batch_size = 4,
@@ -54,7 +54,7 @@ describe("Neural Network Algorithm", function()
     end)
 
     it("calculates scores from normalized features", function()
-      local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0 }
+      local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0, 1.0 }
 
       local score = nn.calculate_score(input_buf)
       assert.is_number(score)
@@ -68,14 +68,14 @@ describe("Neural Network Algorithm", function()
       -- Initialize with a specific seed for deterministic results
       math.randomseed(42)
       local test_config = helpers.create_algorithm_config("nn", {
-        architecture = { 10, 8, 4, 1 },
+        architecture = { 11, 8, 4, 1 },
         optimizer = "sgd",
         dropout_rates = { 0, 0 },
       })
       nn.init(test_config.algorithm_config.nn)
 
-      local input_buf1 = { 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }
-      local input_buf2 = { 0.1, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0 }
+      local input_buf1 = { 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 }
+      local input_buf2 = { 0.1, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0 }
 
       local score1 = nn.calculate_score(input_buf1)
       local score2 = nn.calculate_score(input_buf2)
@@ -89,7 +89,7 @@ describe("Neural Network Algorithm", function()
     end)
 
     it("handles sparse input gracefully", function()
-      local input_buf = { 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+      local input_buf = { 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }
 
       local score = nn.calculate_score(input_buf)
       assert.is_number(score)
@@ -711,7 +711,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 8, 4, 1 }, -- 2 hidden layers
+          architecture = { 11, 8, 4, 1 }, -- 2 hidden layers
           batch_size = 32,
           batches_per_update = 1,
           history_size = 100,
@@ -734,7 +734,7 @@ describe("Neural Network Algorithm", function()
         local config = helpers.create_algorithm_config(
           "nn",
           vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-            architecture = { 10, 8, 4, 1 }, -- 2 hidden layers
+            architecture = { 11, 8, 4, 1 }, -- 2 hidden layers
             learning_rate = 0.01,
             batch_size = 32,
             batches_per_update = 1,
@@ -756,7 +756,7 @@ describe("Neural Network Algorithm", function()
         local config = helpers.create_algorithm_config(
           "nn",
           vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-            architecture = { 10, 8, 1 },
+            architecture = { 11, 8, 1 },
             learning_rate = 0.01,
             batch_size = 32,
             batches_per_update = 1,
@@ -772,7 +772,7 @@ describe("Neural Network Algorithm", function()
         local config = helpers.create_algorithm_config(
           "nn",
           vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-            architecture = { 10, 8, 1 },
+            architecture = { 11, 8, 1 },
             learning_rate = 0.01,
             batch_size = 32,
             batches_per_update = 1,
@@ -792,7 +792,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 16, 1 },
+          architecture = { 11, 16, 1 },
           dropout_rates = { 0.5 },
           batch_size = 32,
           batches_per_update = 1,
@@ -801,7 +801,7 @@ describe("Neural Network Algorithm", function()
       )
       nn.init(config.algorithm_config.nn)
 
-      local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0 }
+      local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0, 1.0 }
 
       -- Calculate scores multiple times - should be deterministic in inference
       local score1 = nn.calculate_score(input_buf)
@@ -1411,7 +1411,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 8, 1 },
+          architecture = { 11, 8, 1 },
           history_size = 50,
         })
       )
@@ -1476,7 +1476,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.5,
-          input_buf = { 0.8, 0.2, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.5, 0.0 },
+          input_buf = { 0.8, 0.2, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.5, 0.0, 1.0 },
         },
       }
 
@@ -1500,7 +1500,7 @@ describe("Neural Network Algorithm", function()
           algorithm = "nn",
           algorithm_config = {
             nn = {
-              architecture = { 10, 4, 1 },
+              architecture = { 11, 4, 1 },
               optimizer = "sgd",
               learning_rate = 0.1,
               batch_size = 4,
@@ -1520,7 +1520,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.5,
-          input_buf = { 0.8, 0.2, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.5, 0.0 },
+          input_buf = { 0.8, 0.2, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.5, 0.0, 1.0 },
         },
       }
 
@@ -1560,7 +1560,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.0,
-          input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 },
+          input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 },
         },
       }
 
@@ -1938,7 +1938,7 @@ describe("Neural Network Algorithm", function()
       )
       nn.init(config.algorithm_config.nn)
 
-      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 }
+      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 }
 
       -- Should load without error and default to SGD
       local score = nn.calculate_score(input_buf)
@@ -1991,7 +1991,7 @@ describe("Neural Network Algorithm", function()
       nn.init(config.algorithm_config.nn)
 
       -- Trigger weight loading by calculating a score
-      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 }
+      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 }
       nn.calculate_score(input_buf)
 
       -- Should have notified about optimizer change
@@ -2168,7 +2168,7 @@ describe("Neural Network Algorithm", function()
       local nn_adamw = require("neural-open.algorithms.nn")
 
       nn_adamw.init({
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         optimizer = "adamw",
         learning_rate = 0.001,
         batch_size = 2,
@@ -2560,7 +2560,7 @@ describe("Neural Network Algorithm", function()
       )
       nn.init(config.algorithm_config.nn)
 
-      local input_buf = { 0.8, 0.7, 0.3, 0.0, 0.0, 0.4, 1.0, 0.2, 0.5, 0.0 }
+      local input_buf = { 0.8, 0.7, 0.3, 0.0, 0.0, 0.4, 1.0, 0.2, 0.5, 0.0, 1.0 }
 
       -- Calculate scores multiple times - should be deterministic in inference
       local score1 = nn.calculate_score(input_buf)
@@ -2581,7 +2581,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 8, 1 },
+          architecture = { 11, 8, 1 },
           learning_rate = 0.05,
           batch_size = 4,
           history_size = 50,
@@ -2717,7 +2717,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.0,
-          input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 },
+          input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 },
         },
       }
 
@@ -2739,7 +2739,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 8, 6, 4, 1 },
+          architecture = { 11, 8, 6, 4, 1 },
           learning_rate = 0.01,
           batch_size = 4,
           history_size = 10,
@@ -2749,8 +2749,8 @@ describe("Neural Network Algorithm", function()
       nn.init(config.algorithm_config.nn)
 
       -- Test with features that would cause dead neurons with regular ReLU
-      local negative_buf = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }
-      local positive_buf = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0 }
+      local negative_buf = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 }
+      local positive_buf = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0 }
 
       -- Calculate scores - with leaky ReLU, even all-zero inputs should produce non-zero output
       local score_neg = nn.calculate_score(negative_buf)
@@ -2773,7 +2773,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 16, 8, 4, 1 },
+          architecture = { 11, 16, 8, 4, 1 },
           batch_size = 2,
           history_size = 10,
           dropout_rates = { 0, 0, 0 },
@@ -2870,7 +2870,7 @@ describe("Neural Network Algorithm", function()
         )
         nn.init(config.algorithm_config.nn)
 
-        local input_buf = { 0.75, 0.3, 0.5, 1.0, 0.0, 0.6, 1.0, 0.4, 0.8, 0.2 }
+        local input_buf = { 0.75, 0.3, 0.5, 1.0, 0.0, 0.6, 1.0, 0.4, 0.8, 0.2, 1.0 }
 
         -- Get fast path score via calculate_score
         local fast_score = nn.calculate_score(input_buf)
@@ -2907,7 +2907,7 @@ describe("Neural Network Algorithm", function()
       local config = helpers.create_algorithm_config(
         "nn",
         vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          architecture = { 10, 8, 4, 1 },
+          architecture = { 11, 8, 4, 1 },
           dropout_rates = { 0, 0 },
           batch_size = 2,
           history_size = 20,
@@ -2918,7 +2918,7 @@ describe("Neural Network Algorithm", function()
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
-      local input_buf = { 0.6, 0.4, 0.3, 0.0, 1.0, 0.5, 1.0, 0.7, 0.2, 0.1 }
+      local input_buf = { 0.6, 0.4, 0.3, 0.0, 1.0, 0.5, 1.0, 0.7, 0.2, 0.1, 1.0 }
 
       -- Train the network to modify weights
       local selected = create_mock_item("selected.lua", {

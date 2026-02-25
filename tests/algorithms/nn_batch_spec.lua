@@ -335,7 +335,7 @@ describe("Neural Network Batch Processing", function()
       local nn_test = require("neural-open.algorithms.nn")
 
       nn_test.init({
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.1,
         batch_size = 2,
@@ -355,8 +355,8 @@ describe("Neural Network Batch Processing", function()
       -- Fixed seed AFTER init (overrides os.time() seed) so ensure_weights() initializes deterministically
       math.randomseed(42)
 
-      local input_buf1 = { 0.8, 0.2, 0.5, 1.0, 0.0, 0.7, 1.0, 0.3, 0.6, 0.0 }
-      local input_buf2 = { 0.3, 0.9, 0.2, 0.0, 1.0, 0.4, 0.0, 0.8, 0.1, 0.0 }
+      local input_buf1 = { 0.8, 0.2, 0.5, 1.0, 0.0, 0.7, 1.0, 0.3, 0.6, 0.0, 1.0 }
+      local input_buf2 = { 0.3, 0.9, 0.2, 0.0, 1.0, 0.4, 0.0, 0.8, 0.1, 0.0, 1.0 }
 
       -- Calculate initial scores (triggers ensure_weights → deterministic random init)
       local score1_before = nn_test.calculate_score(input_buf1)

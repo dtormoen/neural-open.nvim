@@ -228,7 +228,7 @@ describe("neural-open", function()
           nos = {
             normalized_path = "/test/file.lua",
             raw_features = {},
-            input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+            input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
             ctx = {
               algorithm = classic,
               algorithm_name = "classic",
@@ -280,7 +280,7 @@ describe("neural-open", function()
           nos = {
             normalized_path = "/test/file.lua",
             raw_features = {},
-            input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+            input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
             ctx = {
               algorithm = classic,
               algorithm_name = "classic",

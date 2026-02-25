@@ -72,7 +72,7 @@ describe("debug module", function()
           frecency = 15.0,
           recency = 3.0,
         },
-        input_buf = { 0.8500, 0.4200, 0.9375, 1.0000, 1.0000, 0.8000, 1.0000, 0.5333, 0, 0 },
+        input_buf = { 0.8500, 0.4200, 0.9375, 1.0000, 1.0000, 0.8000, 1.0000, 0.5333, 0, 0, 1 },
         is_open_buffer = true,
         is_alternate = true,
         recent_rank = 2,
@@ -100,7 +100,7 @@ describe("debug module", function()
           frecency = 0,
           recency = 0,
         },
-        input_buf = { 0.7500, 0, 0, 0, 0, 0.5000, 1.0000, 0, 0, 0 },
+        input_buf = { 0.7500, 0, 0, 0, 0, 0.5000, 1.0000, 0, 0, 0, 1 },
         ctx = {
           algorithm = classic, -- Add algorithm to context
         },

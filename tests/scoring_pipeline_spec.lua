@@ -5,8 +5,19 @@ describe("scoring pipeline regression", function()
   local nn
 
   -- Feature order must match scorer.FEATURE_NAMES
-  local FEATURE_ORDER =
-    { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+  local FEATURE_ORDER = {
+    "match",
+    "virtual_name",
+    "frecency",
+    "open",
+    "alt",
+    "proximity",
+    "project",
+    "recency",
+    "trigram",
+    "transition",
+    "not_current",
+  }
 
   --- Convert named normalized features to flat array in FEATURE_ORDER
   local function features_to_flat(norm)
@@ -29,7 +40,7 @@ describe("scoring pipeline regression", function()
 
     math.randomseed(42)
     local config = helpers.create_algorithm_config("nn", {
-      architecture = { 10, 4, 1 },
+      architecture = { 11, 4, 1 },
       optimizer = "sgd",
       learning_rate = 0.1,
       batch_size = 4,
@@ -115,7 +126,7 @@ describe("scoring pipeline regression", function()
       assert.is_true(norm.frecency > 0.999)
     end)
 
-    it("passes through open, alt, proximity, project, trigram, transition", function()
+    it("passes through open, alt, proximity, project, trigram, transition, not_current", function()
       local raw = {
         match = 0,
         virtual_name = 0,
@@ -127,6 +138,7 @@ describe("scoring pipeline regression", function()
         recency = 0,
         trigram = 0.42,
         transition = 0.88,
+        not_current = 1,
       }
 
       local norm = scorer.normalize_features(raw)
@@ -136,6 +148,7 @@ describe("scoring pipeline regression", function()
       assert.equals(1, norm.project)
       assert.equals(0.42, norm.trigram)
       assert.equals(0.88, norm.transition)
+      assert.equals(1, norm.not_current)
     end)
 
     it("normalizes recency: rank=1->1.0, rank=50->0.51, rank=100->0.01, rank=0->0", function()
@@ -254,9 +267,10 @@ describe("scoring pipeline regression", function()
       assert.are.near(norm.recency, expected_input[8], 1e-15)
       assert.equals(norm.trigram, expected_input[9])
       assert.equals(norm.transition, expected_input[10])
+      assert.equals(norm.not_current, expected_input[11])
 
-      -- 10 features total
-      assert.equals(10, #expected_input)
+      -- 11 features total
+      assert.equals(11, #expected_input)
     end)
   end)
 
@@ -288,6 +302,7 @@ describe("scoring pipeline regression", function()
         norm.recency,
         norm.trigram,
         norm.transition,
+        norm.not_current,
       }
       local score = nn.calculate_score(input_buf)
 
@@ -323,6 +338,7 @@ describe("scoring pipeline regression", function()
           recency = 1,
           trigram = 1,
           transition = 1,
+          not_current = 1,
         },
         {
           match = 50,
@@ -335,6 +351,7 @@ describe("scoring pipeline regression", function()
           recency = 25,
           trigram = 0.8,
           transition = 0.5,
+          not_current = 1,
         },
         {
           match = 1,
@@ -347,6 +364,7 @@ describe("scoring pipeline regression", function()
           recency = 100,
           trigram = 0,
           transition = 0.1,
+          not_current = 1,
         },
       }
 
@@ -424,6 +442,7 @@ describe("scoring pipeline regression", function()
         norm.recency,
         norm.trigram,
         norm.transition,
+        norm.not_current,
       }
       input_buf[1] = scorer.normalize_match_score(raw.match)
       input_buf[2] = scorer.normalize_match_score(raw.virtual_name)

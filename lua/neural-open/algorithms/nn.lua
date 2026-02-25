@@ -1165,6 +1165,56 @@ local function ensure_weights(force_reload)
         state.running_vars = algorithm_weights.nn.network.running_vars
       end
 
+      -- Handle input-size migration: expand first layer if config expects more inputs
+      local input_size_migrated = false
+      local migrated_output_size = 0
+      if state.weights and state.weights[1] then
+        local saved_input_size = #state.weights[1]
+        local expected_input_size = config.architecture[1]
+        if saved_input_size ~= expected_input_size and saved_input_size < expected_input_size then
+          input_size_migrated = true
+          local output_size = #state.weights[1][1]
+          migrated_output_size = output_size
+          -- Append new rows with Xavier-scale random values for each new input
+          for _ = saved_input_size + 1, expected_input_size do
+            local new_row = nn_core.xavier_init(1, output_size, expected_input_size)[1]
+            state.weights[1][#state.weights[1] + 1] = new_row
+          end
+
+          -- Note: first-layer optimizer moments are reset later, after optimizer state
+          -- is loaded from disk (see "Reset first-layer optimizer moments" below).
+
+          -- Backfill training history: append not_current feature to existing pairs
+          -- Training history stores inputs as matrices: { {v1, v2, ..., vN} }
+          -- so we must index into [1] (the inner row vector) for length checks and mutations
+          if algorithm_weights.nn.training_history then
+            for _, pair in ipairs(algorithm_weights.nn.training_history) do
+              local pos_row = pair.positive_input and pair.positive_input[1]
+              if pos_row and #pos_row == saved_input_size then
+                -- Heuristic: trigram >= 0.99 AND proximity == 1.0 suggests current file
+                local is_current = pos_row[9] >= 0.99 and pos_row[6] == 1.0
+                pos_row[expected_input_size] = is_current and 0.0 or 1.0
+              end
+              local neg_row = pair.negative_input and pair.negative_input[1]
+              if neg_row and #neg_row == saved_input_size then
+                local is_current = neg_row[9] >= 0.99 and neg_row[6] == 1.0
+                neg_row[expected_input_size] = is_current and 0.0 or 1.0
+              end
+            end
+          end
+
+          vim.notify(
+            string.format(
+              "neural-open: Migrated NN input layer from %d to %d features. "
+                .. "First-layer weights expanded, optimizer moments reset.",
+              saved_input_size,
+              expected_input_size
+            ),
+            vim.log.levels.INFO
+          )
+        end
+      end
+
       -- Handle migration: clear incompatible training data, reset optimizer state
       if needs_migration then
         -- Old format: training_history contains {input, target, file} samples
@@ -1239,12 +1289,26 @@ local function ensure_weights(force_reload)
         -- SGD now needs state for timestep tracking (warmup)
         state.optimizer_state = { timestep = 0 }
       end
+
+      -- Reset first-layer optimizer moments after input-size migration.
+      -- This runs here (not in the migration block above) because optimizer state
+      -- is loaded from disk after the weight expansion, so it isn't available earlier.
+      if input_size_migrated and state.optimizer_state and state.optimizer_state.moments then
+        local expected_input_size = config.architecture[1]
+        local m = state.optimizer_state.moments
+        if m.first and m.first.weights and m.first.weights[1] then
+          m.first.weights[1] = nn_core.zeros(expected_input_size, migrated_output_size)
+        end
+        if m.second and m.second.weights and m.second.weights[1] then
+          m.second.weights[1] = nn_core.zeros(expected_input_size, migrated_output_size)
+        end
+      end
     end
 
     -- If still no weights, try loading from bundled defaults
     if not state.weights then
       -- Default weights architecture (must match nn_default_weights.lua)
-      local default_architecture = { 10, 16, 16, 8, 1 }
+      local default_architecture = { 11, 16, 16, 8, 1 }
       local architecture_matches = vim.deep_equal(config.architecture, default_architecture)
 
       local default_weights = nil
@@ -1294,7 +1358,7 @@ end
 --- Calculate score using neural network from a flat input buffer.
 --- The input_buf is used directly as the first layer's input (read-only, not modified).
 --- IMPORTANT: load_weights() must be called before first use (done in capture_context)
----@param input_buf number[] Flat array of 10 normalized features in canonical order
+---@param input_buf number[] Flat array of 11 normalized features in canonical order
 ---@return number Score in [0, 100]
 function M.calculate_score(input_buf)
   -- Lazy-load weights if not yet initialized (hot path skips this after first call)
@@ -1822,8 +1886,7 @@ function M.debug_view(item, all_items)
   -- Feature importance (based on first layer weights)
   if state.weights and state.weights[1] then
     table.insert(lines, "Feature Importance (first layer weights):")
-    local feature_order =
-      { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+    local feature_order = FEATURE_NAMES
 
     local importance = {}
     for i, name in ipairs(feature_order) do
@@ -2030,6 +2093,10 @@ if _G._TEST then
 
   function M._get_stats()
     return state.stats
+  end
+
+  function M._get_optimizer_state()
+    return state.optimizer_state
   end
 
   function M._forward_pass(input)

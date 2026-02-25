@@ -169,6 +169,7 @@ function M.create_neural_transform(config, scorer, opts)
       recency_val, -- [8] recency (normalized)
       raw_features.trigram, -- [9] trigram (already [0,1])
       raw_features.transition, -- [10] transition (already [0,1])
+      raw_features.not_current, -- [11] not_current (already binary)
     }
 
     -- Initialize the nos field structure with all per-item data

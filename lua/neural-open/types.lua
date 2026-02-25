@@ -24,6 +24,7 @@
 ---@field recency number Raw recency rank (1-based position in persistent recency list)
 ---@field trigram number Raw trigram similarity score (0-1 Dice coefficient)
 ---@field transition number Raw transition frecency score (exponentially-decayed visit score, 0-∞)
+---@field not_current number Binary: 1 if NOT the current buffer file, 0 if it is
 
 ---@class NosNormalizedFeatures
 ---@field match number Normalized to [0,1] using sigmoid
@@ -36,6 +37,7 @@
 ---@field recency number Normalized to [0,1] using (max - rank + 1) / max (linear decay)
 ---@field trigram number Already [0,1] from Dice coefficient
 ---@field transition number Already [0,1] from calculation (1-1/(1+score/4))
+---@field not_current number Already [0,1] binary
 
 ---@class NosContext
 ---@field recent_files table<string, {recent_rank: number}> Recent files mapping
@@ -57,7 +59,7 @@
 ---@field is_open_buffer boolean File is open in a buffer
 ---@field is_alternate boolean File is the alternate buffer
 ---@field recent_rank number? Position in recent files (1-based)
----@field input_buf number[] Pre-allocated flat array of 10 normalized features for all algorithms
+---@field input_buf number[] Pre-allocated flat array of 11 normalized features for all algorithms
 ---@field ctx NosContext Reference to shared session context
 
 ---@class NeuralOpenItem: snacks.picker.Item

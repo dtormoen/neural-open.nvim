@@ -126,12 +126,12 @@ describe("config helpers", function()
 
     it("should merge algorithm-specific overrides for nn", function()
       local config = helpers.create_algorithm_config("nn", {
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         batch_size = 8,
       })
 
       -- Verify overrides are applied
-      assert.same({ 10, 4, 1 }, config.algorithm_config.nn.architecture)
+      assert.same({ 11, 4, 1 }, config.algorithm_config.nn.architecture)
       assert.equals(8, config.algorithm_config.nn.batch_size)
 
       -- Verify other nn defaults are preserved

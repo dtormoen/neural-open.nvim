@@ -41,7 +41,7 @@ The plugin uses a dedicated `nos` field on picker items to encapsulate all neura
 - **is_open_buffer**, **is_alternate**: Buffer state flags
 - **recent_rank**: Position in persistent recency list (1-based)
 - **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
-- **input_buf**: Pre-allocated flat array of 10 normalized features used by all algorithms. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
+- **input_buf**: Pre-allocated flat array of 11 normalized features used by all algorithms. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
 - **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, current_file_trigrams_size, recent_files, alternate_buf)
 
 This structure provides clean separation between plugin-specific data and native Snacks picker fields. All algorithms use a unified scoring pipeline: raw_features → input_buf (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → `calculate_score(input_buf)` → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Classic pre-computes a positional weight array at weight-load time for a dot-product hot path. `scorer.normalize_features()` is retained as a utility for debug views and weight learning.
@@ -58,6 +58,7 @@ The plugin uses a multi-factor scoring algorithm that combines:
 - Recent file ranking (persistent recency list with linear decay scoring)
 - Trigram similarity (character-level similarity to current file)
 - File transition frecency (learns common file-to-file navigation patterns with exponential decay)
+- Not-current file indicator (binary signal that deprioritizes the currently open file)
 
 ### Self-Learning Mechanism
 
@@ -104,9 +105,10 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Enabled by default for AdamW (100 steps)
   - Helps mitigate bias correction amplification in AdamW
 - **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
-- **Migration**: Automatically migrates from older BCE-based format (v1.0) to pairwise hinge loss format (v2.0)
-  - Preserves network weights while resetting optimizer state and training history
-  - Users are notified of the upgrade
+- **Migration**: Automatically migrates from older formats:
+  - BCE-to-hinge migration: Upgrades from BCE-based format (v1.0) to pairwise hinge loss format (v2.0), preserving network weights while resetting optimizer state and training history
+  - Input-size migration: Expands first layer when new features are added (e.g., 10 to 11 inputs), using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history with heuristic values
+  - Users are notified of each upgrade
 
 ### Data Persistence
 

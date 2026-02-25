@@ -4,7 +4,7 @@
 --- These weights are used as defaults when no user weights exist.
 --- They represent a pre-trained network that provides good initial file ranking.
 ---
---- Network architecture: 10 -> 16 -> 16 -> 8 -> 1
+--- Network architecture: 11 -> 16 -> 16 -> 8 -> 1
 --- Training format: v2.0 pairwise hinge loss
 
 return {
@@ -299,6 +299,24 @@ return {
           0.01204455535840926,
           0.9097445726014253,
           -0.2064778111772347,
+        },
+        {
+          0.05,
+          -0.12,
+          0.08,
+          -0.03,
+          0.15,
+          -0.07,
+          0.11,
+          -0.09,
+          0.06,
+          -0.14,
+          0.02,
+          0.10,
+          -0.05,
+          0.13,
+          -0.08,
+          0.04,
         },
       },
       {

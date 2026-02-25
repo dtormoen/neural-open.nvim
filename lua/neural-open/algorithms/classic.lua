@@ -30,6 +30,14 @@ end
 local function ensure_weights(force_reload)
   if not current_weights or force_reload then
     current_weights = require("neural-open.weights").get_weights("classic")
+    -- Backfill any new features from defaults that are missing in saved weights
+    if config and config.default_weights then
+      for key, value in pairs(config.default_weights) do
+        if current_weights[key] == nil then
+          current_weights[key] = value
+        end
+      end
+    end
     rebuild_weight_buf()
   end
   return current_weights
@@ -271,8 +279,7 @@ function M.debug_view(item, all_items)
     table.insert(lines, "🔢 Features (Raw → Normalized):")
     table.insert(lines, "")
 
-    local all_features =
-      { "match", "virtual_name", "open", "alt", "proximity", "project", "frecency", "recency", "trigram", "transition" }
+    local all_features = scorer.FEATURE_NAMES
 
     local normalized_features = item.nos.input_buf and scorer.input_buf_to_features(item.nos.input_buf) or {}
 

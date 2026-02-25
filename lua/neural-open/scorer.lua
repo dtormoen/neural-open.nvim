@@ -4,8 +4,19 @@ local math_exp = math.exp
 local trigrams = require("neural-open.trigrams")
 
 --- Canonical feature names in input buffer order (shared by all algorithms)
-M.FEATURE_NAMES =
-  { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+M.FEATURE_NAMES = {
+  "match",
+  "virtual_name",
+  "frecency",
+  "open",
+  "alt",
+  "proximity",
+  "project",
+  "recency",
+  "trigram",
+  "transition",
+  "not_current",
+}
 
 --- Convert a flat input buffer to a named features table
 ---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
@@ -173,6 +184,7 @@ function M.compute_static_raw_features(
     recency = recent_rank or 0,
     trigram = 0,
     transition = 0,
+    not_current = (normalized_path == context.current_file) and 0 or 1,
   }
 
   -- Calculate proximity using precomputed directory context (fast path)
@@ -239,6 +251,7 @@ function M.normalize_features(raw_features)
     recency = recency_val,
     trigram = raw_features.trigram or 0,
     transition = raw_features.transition or 0,
+    not_current = raw_features.not_current or 0,
   }
 end
 

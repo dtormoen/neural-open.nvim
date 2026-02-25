@@ -270,6 +270,7 @@ local function create_items(paths, context)
       recency_val, -- [8] recency (normalized)
       raw_features.trigram, -- [9] trigram (already [0,1])
       raw_features.transition, -- [10] transition (already [0,1])
+      raw_features.not_current, -- [11] not_current (already binary)
     }
 
     items[i] = {
@@ -457,6 +458,7 @@ for _, size in ipairs(REPO_SIZES) do
           recency_val,
           raw_features.trigram,
           raw_features.transition,
+          raw_features.not_current,
         }
         -- nos table creation (mirrors source.lua)
         local _nos = { -- luacheck: ignore 211

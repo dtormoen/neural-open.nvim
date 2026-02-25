@@ -319,7 +319,7 @@ describe("Pairwise Hinge Loss", function()
 
       nn = require("neural-open.algorithms.nn")
       nn.init({
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         batch_size = 4,
@@ -433,7 +433,7 @@ describe("Pairwise Hinge Loss", function()
         history_size = 5,
         batch_size = 2,
         batches_per_update = 1,
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         adam_beta1 = 0.9,
@@ -591,7 +591,7 @@ describe("Pairwise Hinge Loss", function()
       nn_core = require("neural-open.algorithms.nn_core")
       nn = require("neural-open.algorithms.nn")
       nn.init({
-        architecture = { 10, 8, 1 },
+        architecture = { 11, 8, 1 },
         learning_rate = 0.01,
         batch_size = 2, -- 2 pairs per batch
         history_size = 10,
@@ -696,7 +696,7 @@ describe("Pairwise Hinge Loss", function()
       -- Initialize with fixed seed
       math.randomseed(42)
       nn.init({
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         optimizer = "sgd",
         margin = 0.1, -- Small margin for easier satisfaction
         dropout_rates = { 0 },
@@ -778,13 +778,13 @@ describe("Pairwise Hinge Loss", function()
         {
           file = "1.lua",
           nos = {
-            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
+            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
           },
         },
         {
           file = "2.lua",
           nos = {
-            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0 },
+            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0, 1.0 },
           },
         },
       }
@@ -803,7 +803,7 @@ describe("Pairwise Hinge Loss", function()
       math.randomseed(12345)
 
       nn.init({
-        architecture = { 10, 16, 8, 1 },
+        architecture = { 11, 16, 8, 1 },
         learning_rate = 0.05,
         batch_size = 4,
         history_size = 50,
@@ -887,13 +887,13 @@ describe("Pairwise Hinge Loss", function()
         {
           file = "1.lua",
           nos = {
-            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
+            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
           },
         },
         {
           file = "2.lua",
           nos = {
-            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0 },
+            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0, 1.0 },
           },
         },
       }
@@ -1012,7 +1012,7 @@ describe("Pairwise Hinge Loss", function()
 
       -- Initialize
       nn.init({
-        architecture = { 10, 1 },
+        architecture = { 11, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         batch_size = 32,
@@ -1030,7 +1030,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
 
       -- Verify migration occurred
       assert.is_not_nil(_G.last_notify_message)
@@ -1053,12 +1053,14 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("does not migrate when version is 2.0-hinge", function()
-      -- Simulate new weights file
+      -- Simulate new weights file (11 rows to match current architecture)
       weights_module.saved_weights = {
         nn = {
           version = "2.0-hinge",
           network = {
-            weights = { { { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 } } },
+            weights = {
+              { { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 }, { 0.5 } },
+            },
             biases = { { { 0.1 } } },
             gammas = {},
             betas = {},
@@ -1084,7 +1086,7 @@ describe("Pairwise Hinge Loss", function()
       -- Initialize
       _G.last_notify_message = nil
       nn.init({
-        architecture = { 10, 1 },
+        architecture = { 11, 1 },
         optimizer = "adamw",
         learning_rate = 0.01,
         batch_size = 32,
@@ -1102,7 +1104,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading
-      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
 
       -- Verify no migration notification
       assert.is_nil(_G.last_notify_message)
@@ -1140,7 +1142,7 @@ describe("Pairwise Hinge Loss", function()
 
       -- Initialize with AdamW
       nn.init({
-        architecture = { 10, 1 },
+        architecture = { 11, 1 },
         optimizer = "adamw",
         learning_rate = 0.01,
         batch_size = 32,
@@ -1158,7 +1160,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
 
       -- Verify optimizer state was reset (timestep should be 0 for new state)
       -- The migration should create a new optimizer state
@@ -1188,7 +1190,7 @@ describe("Pairwise Hinge Loss", function()
 
       -- Initialize
       nn.init({
-        architecture = { 10, 1 },
+        architecture = { 11, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         batch_size = 32,
@@ -1206,7 +1208,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
 
       -- Verify weights were preserved (check first weight)
       local weights = nn._get_weights()
@@ -1236,7 +1238,7 @@ describe("Pairwise Hinge Loss", function()
       -- Initialize
       _G.last_notify_message = nil
       nn.init({
-        architecture = { 10, 1 },
+        architecture = { 11, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         batch_size = 32,
@@ -1254,7 +1256,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
 
       -- Should trigger migration
       assert.is_not_nil(_G.last_notify_message)
@@ -1280,7 +1282,7 @@ describe("Pairwise Hinge Loss", function()
 
       -- Initialize
       nn.init({
-        architecture = { 10, 1 },
+        architecture = { 11, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         batch_size = 32,
@@ -1302,13 +1304,13 @@ describe("Pairwise Hinge Loss", function()
         {
           file = "1.lua",
           nos = {
-            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
+            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
           },
         },
         {
           file = "2.lua",
           nos = {
-            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0 },
+            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0, 1.0 },
           },
         },
       }
@@ -1318,6 +1320,233 @@ describe("Pairwise Hinge Loss", function()
       assert.is_not_nil(weights_module.saved_weights)
       assert.is_not_nil(weights_module.saved_weights.nn)
       assert.equals("2.0-hinge", weights_module.saved_weights.nn.version)
+    end)
+
+    it("migrates 10-input layer to 11-input layer and backfills training history", function()
+      -- Simulate saved weights with 10-input first layer (old feature count)
+      -- Architecture: {10, 4, 1} -> 10 inputs, 4 hidden, 1 output
+      local original_weights_layer1 = {}
+      for i = 1, 10 do
+        original_weights_layer1[i] = {}
+        for j = 1, 4 do
+          original_weights_layer1[i][j] = 0.1 * i + 0.01 * j
+        end
+      end
+      local weights_layer2 = { { 0.5 }, { 0.6 }, { 0.7 }, { 0.8 } }
+
+      weights_module.saved_weights = {
+        nn = {
+          version = "2.0-hinge",
+          network = {
+            weights = { original_weights_layer1, weights_layer2 },
+            biases = { { { 0.1, 0.2, 0.3, 0.4 } }, { { 0.05 } } },
+            gammas = {},
+            betas = {},
+          },
+          training_history = {
+            {
+              -- Non-current file: trigram=0.5 (idx 9), proximity=0.3 (idx 6) -> not_current=1.0
+              positive_input = { { 0.8, 0.7, 0.6, 1, 0, 0.3, 1, 0.9, 0.5, 0.2 } },
+              negative_input = { { 0.3, 0.2, 0.1, 0, 0, 0.1, 1, 0.5, 0.3, 0.1 } },
+              positive_file = "src/app.lua",
+              negative_file = "src/utils.lua",
+            },
+            {
+              -- Current file heuristic: trigram=0.99 (idx 9), proximity=1.0 (idx 6) -> not_current=0.0
+              positive_input = { { 0.9, 0.8, 0.7, 1, 1, 1.0, 1, 0.95, 0.99, 0.4 } },
+              negative_input = { { 0.4, 0.3, 0.2, 0, 0, 0.5, 0, 0.6, 0.2, 0.0 } },
+              positive_file = "src/current.lua",
+              negative_file = "src/other.lua",
+            },
+          },
+          stats = {
+            samples_processed = 50,
+            batches_trained = 5,
+            loss_history = { 0.3, 0.2 },
+          },
+          optimizer_type = "sgd",
+        },
+      }
+
+      _G.last_notify_message = nil
+      nn.init({
+        architecture = { 11, 4, 1 },
+        optimizer = "sgd",
+        learning_rate = 0.01,
+        batch_size = 32,
+        history_size = 100,
+        batches_per_update = 1,
+        weight_decay = 0.0001,
+        warmup_steps = 0,
+        warmup_start_factor = 0.1,
+        adam_beta1 = 0.9,
+        adam_beta2 = 0.999,
+        adam_epsilon = 1e-8,
+        match_dropout = 0,
+        margin = 1.0,
+        dropout_rates = { 0 },
+      })
+
+      -- Trigger weight loading (input-size migration happens here)
+      local score = nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
+      assert.is_number(score)
+
+      -- Verify notification about input-size migration
+      assert.is_not_nil(_G.last_notify_message)
+      assert.is_true(
+        string.find(_G.last_notify_message, "Migrated NN input layer from 10 to 11") ~= nil,
+        "Expected input-size migration notification, got: " .. tostring(_G.last_notify_message)
+      )
+
+      -- Verify first layer now has 11 rows
+      local weights = nn._get_weights()
+      assert.is_not_nil(weights)
+      assert.is_not_nil(weights[1])
+      assert.equals(11, #weights[1])
+
+      -- Verify original 10 rows are preserved
+      for i = 1, 10 do
+        for j = 1, 4 do
+          assert.equals(
+            original_weights_layer1[i][j],
+            weights[1][i][j],
+            string.format("Weight[1][%d][%d] should be preserved", i, j)
+          )
+        end
+      end
+
+      -- Verify 11th row was added with 4 values
+      assert.equals(4, #weights[1][11])
+
+      -- Verify second layer was not modified
+      assert.equals(4, #weights[2])
+
+      -- Verify training history was backfilled with 11 elements
+      local history = nn._get_training_history()
+      assert.equals(2, #history)
+
+      -- First pair: non-current file (trigram=0.5, proximity=0.3) -> not_current=1.0
+      -- Training history stores inputs as matrices: { {v1, v2, ..., vN} }
+      assert.equals(11, #history[1].positive_input[1])
+      assert.equals(1.0, history[1].positive_input[1][11])
+      assert.equals(11, #history[1].negative_input[1])
+      assert.equals(1.0, history[1].negative_input[1][11])
+
+      -- Second pair: positive is current file (trigram=0.99, proximity=1.0) -> not_current=0.0
+      assert.equals(11, #history[2].positive_input[1])
+      assert.equals(0.0, history[2].positive_input[1][11])
+      -- Negative is not current file -> not_current=1.0
+      assert.equals(11, #history[2].negative_input[1])
+      assert.equals(1.0, history[2].negative_input[1][11])
+    end)
+
+    it("resets AdamW first-layer optimizer moments after input-size migration", function()
+      -- Architecture: {10, 4, 1} -> 10 inputs, 4 hidden, 1 output
+      local weights_layer1 = {}
+      for i = 1, 10 do
+        weights_layer1[i] = {}
+        for j = 1, 4 do
+          weights_layer1[i][j] = 0.1 * i + 0.01 * j
+        end
+      end
+      local weights_layer2 = { { 0.5 }, { 0.6 }, { 0.7 }, { 0.8 } }
+
+      -- Create 10×4 optimizer moments (old dimension)
+      nn_core = require("neural-open.algorithms.nn_core")
+      local old_first_weights = nn_core.zeros(10, 4)
+      -- Put non-zero values so we can verify they get replaced
+      for i = 1, 10 do
+        for j = 1, 4 do
+          old_first_weights[i][j] = 0.5
+        end
+      end
+      local old_second_weights = nn_core.zeros(10, 4)
+      for i = 1, 10 do
+        for j = 1, 4 do
+          old_second_weights[i][j] = 0.25
+        end
+      end
+
+      weights_module.saved_weights = {
+        nn = {
+          version = "2.0-hinge",
+          network = {
+            weights = { vim.deepcopy(weights_layer1), weights_layer2 },
+            biases = { { { 0.1, 0.2, 0.3, 0.4 } }, { { 0.05 } } },
+            gammas = {},
+            betas = {},
+          },
+          training_history = {},
+          stats = { samples_processed = 10, batches_trained = 2, loss_history = {} },
+          optimizer_type = "adamw",
+          optimizer_state = {
+            timestep = 50,
+            moments = {
+              first = {
+                weights = { vim.deepcopy(old_first_weights), nn_core.zeros(4, 1) },
+                biases = { nn_core.zeros(1, 4), nn_core.zeros(1, 1) },
+                gammas = {},
+                betas = {},
+              },
+              second = {
+                weights = { vim.deepcopy(old_second_weights), nn_core.zeros(4, 1) },
+                biases = { nn_core.zeros(1, 4), nn_core.zeros(1, 1) },
+                gammas = {},
+                betas = {},
+              },
+            },
+          },
+        },
+      }
+
+      _G.last_notify_message = nil
+      nn.init({
+        architecture = { 11, 4, 1 },
+        optimizer = "adamw",
+        learning_rate = 0.001,
+        batch_size = 32,
+        history_size = 100,
+        batches_per_update = 1,
+        weight_decay = 0.0001,
+        warmup_steps = 0,
+        warmup_start_factor = 0.1,
+        adam_beta1 = 0.9,
+        adam_beta2 = 0.999,
+        adam_epsilon = 1e-8,
+        match_dropout = 0,
+        margin = 1.0,
+        dropout_rates = { 0 },
+      })
+
+      -- Trigger weight loading
+      local score = nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
+      assert.is_number(score)
+
+      -- Verify first-layer moments were reset to 11×4
+      local opt = nn._get_optimizer_state()
+      assert.is_not_nil(opt)
+      assert.is_not_nil(opt.moments)
+
+      local m1_w1 = opt.moments.first.weights[1]
+      assert.equals(11, #m1_w1, "First moment weights[1] should have 11 rows")
+      assert.equals(4, #m1_w1[1], "First moment weights[1] should have 4 cols")
+      -- All values should be zero (reset)
+      for i = 1, 11 do
+        for j = 1, 4 do
+          assert.equals(0, m1_w1[i][j], string.format("first.weights[1][%d][%d] should be 0", i, j))
+        end
+      end
+
+      local m2_w1 = opt.moments.second.weights[1]
+      assert.equals(11, #m2_w1, "Second moment weights[1] should have 11 rows")
+      assert.equals(4, #m2_w1[1], "Second moment weights[1] should have 4 cols")
+
+      -- Second layer moments should be untouched (still 4×1)
+      assert.equals(4, #opt.moments.first.weights[2])
+      assert.equals(1, #opt.moments.first.weights[2][1])
+
+      -- Timestep should be preserved
+      assert.equals(50, opt.timestep)
     end)
   end)
 
@@ -1361,7 +1590,7 @@ describe("Pairwise Hinge Loss", function()
 
       nn = require("neural-open.algorithms.nn")
       nn.init({
-        architecture = { 10, 4, 1 },
+        architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
         margin = 1.0,
@@ -1392,7 +1621,7 @@ describe("Pairwise Hinge Loss", function()
       local item = {
         file = "test.lua",
         nos = {
-          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
           neural_score = 50,
         },
       }
@@ -1409,7 +1638,7 @@ describe("Pairwise Hinge Loss", function()
       local item = {
         file = "test.lua",
         nos = {
-          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
           neural_score = 50,
         },
       }
@@ -1425,7 +1654,7 @@ describe("Pairwise Hinge Loss", function()
       local item = {
         file = "test.lua",
         nos = {
-          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 },
           neural_score = 50,
         },
       }
@@ -1442,7 +1671,7 @@ describe("Pairwise Hinge Loss", function()
       local item = {
         file = "test.lua",
         nos = {
-          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.3 },
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.3, 1.0 },
           neural_score = 50,
         },
       }

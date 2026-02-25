@@ -19,13 +19,14 @@ M.config = {
         recency = 9, -- Recency score
         trigram = 10, -- Trigram similarity
         transition = 5, -- File transition tracking
+        not_current = 5, -- Not-current-file bonus
       },
     },
     naive = {
       -- No configuration needed
     },
     nn = {
-      architecture = { 10, 16, 16, 8, 1 }, -- Input → Hidden1 → Hidden2 → Hidden3 → Output
+      architecture = { 11, 16, 16, 8, 1 }, -- Input → Hidden1 → Hidden2 → Hidden3 → Output
       optimizer = "adamw",
       learning_rate = 0.001,
       batch_size = 128,

@@ -6,24 +6,24 @@ describe("naive algorithm", function()
   end)
 
   describe("calculate_score", function()
-    -- Flat array order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
+    -- Flat array order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition, not_current
 
     it("should sum all normalized features", function()
-      local input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0.2, 0, 0 }
+      local input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0.2, 0, 0, 1 }
 
       local score = naive.calculate_score(input_buf)
-      assert.are.equal(1.8, score)
+      assert.are.equal(2.8, score)
     end)
 
     it("should handle zero values", function()
-      local input_buf = { 0.8, 0, 0, 0, 0, 0, 0, 0.2, 0, 0 }
+      local input_buf = { 0.8, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 1 }
 
       local score = naive.calculate_score(input_buf)
-      assert.are.equal(1.0, score)
+      assert.are.equal(2.0, score)
     end)
 
     it("should handle all-zero features", function()
-      local input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+      local input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
       local score = naive.calculate_score(input_buf)
       assert.are.equal(0, score)
     end)
@@ -42,11 +42,11 @@ describe("naive algorithm", function()
 
   describe("debug_view", function()
     it("should return debug information", function()
-      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition, not_current
       local item = {
         nos = {
           neural_score = 2.5,
-          input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0, 0, 0 },
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0, 0, 0, 1 },
         },
       }
 
@@ -62,11 +62,11 @@ describe("naive algorithm", function()
     end)
 
     it("should display transition feature in debug output", function()
-      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition, not_current
       local item = {
         nos = {
           neural_score = 2.5,
-          input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0, 0, 0.4 },
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0, 0, 0.4, 1 },
         },
       }
 

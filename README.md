@@ -8,7 +8,7 @@ Inspired by [smart-open.nvim](https://github.com/danielfalk/smart-open.nvim), bu
 
 - **Neural Network Ranking**: An MLP trains online from your selections using pairwise hinge loss, learning to rank files by relative preference
 - **Pre-trained Defaults**: Ships with default weights trained on over 16k samples so ranking is useful from the first launch
-- **10 Scoring Features**: Fuzzy match, virtual name, open/alternate buffer, directory proximity, project scope, frecency, recency, trigram similarity, and file transition frecency
+- **11 Scoring Features**: Fuzzy match, virtual name, open/alternate buffer, directory proximity, project scope, frecency, recency, trigram similarity, file transition frecency, and not-current file indicator
 - **Self-Learning**: Adapts to your navigation patterns over time and persists learned weights across sessions
 - **Score Preview**: Enable `debug.preview` to watch the model's score breakdowns and training in real time
 - **Multiple Algorithms**: Neural network (default), classic weighted sum based on smart-open.nvim, or naive baseline
@@ -50,7 +50,7 @@ require("neural-open").setup({
   algorithm_config = {
     -- Neural network algorithm settings (default)
     nn = {
-      architecture = { 10, 16, 16, 8, 1 }, -- Input → Hidden1 → Hidden2 → Hidden3 → Output
+      architecture = { 11, 16, 16, 8, 1 }, -- Input → Hidden1 → Hidden2 → Hidden3 → Output
       optimizer = "adamw",                 -- "sgd" or "adamw"
       learning_rate = 0.001,               -- Learning rate for gradient descent
       batch_size = 128,                    -- Number of samples per training batch
@@ -81,6 +81,7 @@ require("neural-open").setup({
         recency = 9,        -- Recency score
         trigram = 10,       -- Trigram similarity
         transition = 5,     -- File transition tracking
+        not_current = 5,    -- Not-current-file indicator
       },
     },
     naive = {
@@ -182,7 +183,7 @@ For each file in the picker, the plugin computes a set of normalized features ca
 
 ### Scoring Features
 
-Each file receives a score based on 10 features, all normalized to [0,1]:
+Each file receives a score based on 11 features, all normalized to [0,1]:
 
 1. **Match**: Fuzzy path matching score from Snacks.nvim's matcher, normalized with a sigmoid
 2. **Virtual Name**: Fuzzy match against a virtual name that includes the parent directory for index/init files (e.g., `components/index.js` matches "components"), normalized with a sigmoid
@@ -194,10 +195,11 @@ Each file receives a score based on 10 features, all normalized to [0,1]:
 8. **Recency**: Position in a persistent most-recently-accessed list (updated on BufEnter), scored with linear decay: `(max - rank + 1) / max`
 9. **Trigram**: Character-level similarity between the candidate's virtual name and the current filename using Dice coefficient over 3-character trigram sets
 10. **Transition**: Learned file-to-file navigation patterns using frecency with exponential decay (30-day half-life), scored with `1 - 1/(1 + score/4)`
+11. **Not Current**: Binary indicator (1.0 if the candidate is NOT the currently open file, 0.0 if it is), allowing the model to learn to deprioritize the current file in rankings
 
 ### Neural Network Algorithm (default)
 
-A multi-layer perceptron that takes the 10 normalized features as input and outputs a ranking score. Trained online using pairwise hinge loss: when you select a file, the network learns from (selected, non-selected) pairs constructed from the top-ranked candidates. Uses batch normalization and Leaky ReLU activations during training; at inference time, batch normalization is fused into the weight matrices so scoring runs with zero allocations per keystroke. Match/virtual_name features are randomly dropped during training to force the network to learn from contextual features (frecency, proximity, etc.), improving ranking before any query is typed. Supports AdamW (default) and SGD optimizers with optional learning rate warmup.
+A multi-layer perceptron that takes the 11 normalized features as input and outputs a ranking score. Trained online using pairwise hinge loss: when you select a file, the network learns from (selected, non-selected) pairs constructed from the top-ranked candidates. Uses batch normalization and Leaky ReLU activations during training; at inference time, batch normalization is fused into the weight matrices so scoring runs with zero allocations per keystroke. Match/virtual_name features are randomly dropped during training to force the network to learn from contextual features (frecency, proximity, etc.), improving ranking before any query is typed. Supports AdamW (default) and SGD optimizers with optional learning rate warmup.
 
 ### Classic Algorithm
 
