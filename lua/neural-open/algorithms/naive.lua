@@ -25,46 +25,32 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
   -- Naive algorithm doesn't learn from selections
 end
 
+local fmt = require("neural-open.debug_fmt")
+
 --- Generate debug view for naive algorithm
 ---@param item NeuralOpenItem
 ---@param all_items NeuralOpenItem[]?
----@return string[]
+---@return string[], table[]?
 function M.debug_view(item, all_items)
   local lines = {}
+  local hl = {}
 
-  table.insert(lines, "🎯 Naive Algorithm")
+  fmt.add_title(lines, hl, "Naive Algorithm")
   table.insert(lines, "")
-  table.insert(lines, "Algorithm: Simple sum of all normalized features")
-  table.insert(lines, "Learning: None (static algorithm)")
+  fmt.add_label(lines, hl, "Algorithm", "Simple sum of all normalized features")
+  fmt.add_label(lines, hl, "Learning", "None (static algorithm)")
   table.insert(lines, "")
 
   if item.nos and item.nos.neural_score then
-    table.insert(lines, string.format("Total Score: %.4f", item.nos.neural_score))
-    table.insert(lines, "")
+    fmt.add_label(lines, hl, "Total Score", string.format("%.4f", item.nos.neural_score))
   end
 
   if item.nos and item.nos.input_buf then
     local normalized_features = scorer.input_buf_to_features(item.nos.input_buf)
-    table.insert(lines, "Normalized Features (all weighted equally):")
-    table.insert(lines, "")
-
-    -- Sort features by value for better readability
-    local sorted_features = {}
-    for name, value in pairs(normalized_features) do
-      table.insert(sorted_features, { name = name, value = value })
-    end
-    table.sort(sorted_features, function(a, b)
-      return a.value > b.value
-    end)
-
-    for _, feature in ipairs(sorted_features) do
-      local formatted_name = feature.name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
-      formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
-      table.insert(lines, string.format("  %-15s: %.4f", formatted_name, feature.value))
-    end
+    fmt.append_feature_value_table(lines, hl, normalized_features)
   end
 
-  return lines
+  return lines, hl
 end
 
 --- Get algorithm name

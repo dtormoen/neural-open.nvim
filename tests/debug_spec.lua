@@ -179,14 +179,14 @@ describe("debug module", function()
       }
 
       for _, line in ipairs(lines) do
-        if line:match("Features %(Raw") then
+        if line:match("Features:") then
           features_section_found = true
         end
 
         for feature in pairs(all_features_shown) do
           local formatted_feature = feature:gsub("_", " "):sub(1, 1):upper() .. feature:gsub("_", " "):sub(2)
-          -- Only check for the arrow in the Features section, not in other sections
-          if line:match(formatted_feature) and line:match("→") then
+          -- Check for feature name with numeric values in the table row
+          if line:match(formatted_feature) and line:match("%d+%.%d+") then
             all_features_shown[feature] = true
           end
         end
@@ -206,10 +206,9 @@ describe("debug module", function()
       local found_combined_line = false
 
       for _, line in ipairs(lines) do
-        if line:match("Match:.*→") then
+        -- Table row: "  Match               150.00  0.9933"
+        if line:match("Match") and line:match("%d+%.%d+%s+%d+%.%d+") then
           found_combined_line = true
-          -- Verify format: feature name, raw value, arrow, normalized value
-          assert.truthy(line:match("%d+%.%d+.*→.*%d+%.%d+"), "Line should show raw → normalized format")
           break
         end
       end
@@ -235,19 +234,15 @@ describe("debug module", function()
       }
 
       for _, line in ipairs(lines) do
-        if line:match("Weighted Components") then
+        if line:match("Weighted:") then
           components_section_found = true
         end
 
         for component in pairs(all_components_shown) do
           local formatted_component = component:gsub("_", " "):sub(1, 1):upper() .. component:gsub("_", " "):sub(2)
-          if line:match(formatted_component) and line:match("×") and line:match("=") then
+          -- Table row format: "  Match               0.9933  140.0 (140.0)     139.06"
+          if line:match(formatted_component) and line:match("%d+%.%d+%s+%d+") then
             all_components_shown[component] = true
-            -- Verify calculation format: normalized × weight = score
-            assert.truthy(
-              line:match("%d+%.%d+.*×.*%d+%.%d+.*=.*%d+%.%d+"),
-              "Line should show calculation format: " .. line
-            )
           end
         end
       end

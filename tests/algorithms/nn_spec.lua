@@ -1128,11 +1128,11 @@ describe("Neural Network Algorithm", function()
       local debug_text = table.concat(debug_lines, "\n")
 
       -- Verify it contains expected sections
-      assert.is_true(debug_text:match("Training Statistics:") ~= nil)
+      assert.is_true(debug_text:match("Training Statistics") ~= nil)
       assert.is_true(debug_text:match("Samples Processed:") ~= nil)
       assert.is_true(debug_text:match("Batches Trained:") ~= nil)
-      -- Should have either "Avg Hinge Loss:" or "Last Hinge Loss:" depending on training state
-      assert.is_true(debug_text:match("Avg Hinge Loss:") ~= nil or debug_text:match("Last Hinge Loss:") ~= nil)
+      -- Should have either Loss table row or "Last Hinge Loss:" depending on training state
+      assert.is_true(debug_text:match("Loss:") ~= nil or debug_text:match("Last Hinge Loss:") ~= nil)
 
       -- Train the network with empty batches (edge case)
       local helpers = require("tests.helpers")
@@ -1672,17 +1672,15 @@ describe("Neural Network Algorithm", function()
       local lines = nn.debug_view(item)
       local content = table.concat(lines, "\n")
       assert.is_true(content:match("Last Hinge Loss:") ~= nil)
-      assert.is_nil(content:match("Avg Hinge Loss:"))
 
       -- Train once to get 1 sample
       nn.update_weights(item, { item, item2 })
       lines = nn.debug_view(item)
       content = table.concat(lines, "\n")
 
-      -- With history, should show "Avg Hinge Loss:" with appropriate windows
-      -- With just a few samples, should only show [1] and maybe [2] if we have 2+ samples
-      assert.is_true(content:match("Avg Hinge Loss:") ~= nil)
-      assert.is_true(content:match("%[1%]") ~= nil) -- Should have [1] for last loss
+      -- With history, should show aligned metrics table with Loss row
+      assert.is_true(content:match("Loss:") ~= nil)
+      assert.is_true(content:match("Last") ~= nil) -- Header row should have "Last" column
 
       -- Train more times to build up history
       for _ = 1, 15 do
@@ -1692,10 +1690,9 @@ describe("Neural Network Algorithm", function()
       lines = nn.debug_view(item)
       content = table.concat(lines, "\n")
 
-      -- Should now have [1], [10], and actual count averages
-      assert.is_true(content:match("Avg Hinge Loss:") ~= nil)
-      assert.is_true(content:match("%[1%]") ~= nil) -- Last loss
-      assert.is_true(content:match("%[10%]") ~= nil) -- 10 sample average
+      -- Should now have "Last" and "Avg 10" columns
+      assert.is_true(content:match("Loss:") ~= nil)
+      assert.is_true(content:match("Avg 10") ~= nil) -- 10-sample average column
 
       -- Train many more times to reach 100+ samples
       for _ = 1, 90 do
@@ -1705,56 +1702,12 @@ describe("Neural Network Algorithm", function()
       lines = nn.debug_view(item)
       content = table.concat(lines, "\n")
 
-      -- Should now have [1], [10], [100] averages
-      assert.is_true(content:match("Avg Hinge Loss:") ~= nil)
-      assert.is_true(content:match("%[1%]") ~= nil)
-      assert.is_true(content:match("%[10%]") ~= nil)
-      assert.is_true(content:match("%[100%]") ~= nil)
+      -- Should now have "Avg 100" column
+      assert.is_true(content:match("Avg 100") ~= nil)
 
-      -- Verify format is on single line
-      local loss_line = nil
-      for _, line in ipairs(lines) do
-        if line:match("Avg Hinge Loss:") then
-          loss_line = line
-          break
-        end
-      end
-      assert.is_not_nil(loss_line)
-
-      -- Verify format matches expected pattern: "Avg Hinge Loss: [1] X.XXXXXX [10] X.XXXXXX [100] X.XXXXXX"
-      assert.is_true(loss_line:match("Avg Hinge Loss: %[1%] %d+%.%d+ %[10%] %d+%.%d+ %[100%] %d+%.%d+") ~= nil)
-
-      -- Train a few more times to get to 103 samples (testing partial bucket scenario)
-      for _ = 1, 3 do
-        nn.update_weights(item, { item, item2 })
-      end
-
-      lines = nn.debug_view(item)
-      content = table.concat(lines, "\n")
-
-      -- Should now have [1], [10], [100], [103] (partial bucket for 1000)
-      assert.is_true(content:match("Avg Hinge Loss:") ~= nil)
-      assert.is_true(content:match("%[1%]") ~= nil)
-      assert.is_true(content:match("%[10%]") ~= nil)
-      assert.is_true(content:match("%[100%]") ~= nil)
-
-      -- Find the loss line again
-      loss_line = nil
-      for _, line in ipairs(lines) do
-        if line:match("Avg Hinge Loss:") then
-          loss_line = line
-          break
-        end
-      end
-      assert.is_not_nil(loss_line)
-
-      -- Should show the partial bucket with actual sample count (around 103, may vary due to batching)
-      -- The actual count might be slightly different due to how batching works, but should be > 100
-      local partial_bucket = loss_line:match("%[(%d+)%]%s+%d+%.%d+$")
-      assert.is_not_nil(partial_bucket, "Should show partial bucket at end of loss line")
-      local count = tonumber(partial_bucket)
-      assert.is_true(count > 100, "Partial bucket should show > 100 samples")
-      assert.is_true(count < 1000, "Partial bucket should show < 1000 samples")
+      -- Should also have Accuracy and Margin rows
+      assert.is_true(content:match("Accuracy:") ~= nil)
+      assert.is_true(content:match("Margin:") ~= nil)
     end)
   end)
 
@@ -2098,9 +2051,8 @@ describe("Neural Network Algorithm", function()
       local content = table.concat(lines, "\n")
 
       assert.is_true(content:find("Optimizer: AdamW") ~= nil)
-      assert.is_true(content:find("Timestep:") ~= nil)
-      assert.is_true(content:find("Beta1:") ~= nil)
-      assert.is_true(content:find("Beta2:") ~= nil)
+      assert.is_true(content:find("Step:") ~= nil)
+      assert.is_true(content:find("Beta1/Beta2:") ~= nil)
     end)
 
     it("produces different training behavior between SGD and AdamW", function()

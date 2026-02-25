@@ -253,96 +253,83 @@ function M.simulate_weight_adjustments(selected_item, ranked_items)
   }
 end
 
+local fmt = require("neural-open.debug_fmt")
+
 --- Generate debug view for classic algorithm
 ---@param item NeuralOpenItem
 ---@param all_items NeuralOpenItem[]?
----@return string[]
+---@return string[], table[]?
 function M.debug_view(item, all_items)
   local lines = {}
+  local hl = {}
   local weights = ensure_weights()
 
-  table.insert(lines, "⚖️ Classic Algorithm")
+  fmt.add_title(lines, hl, "Classic Algorithm")
   table.insert(lines, "")
-  table.insert(lines, "Algorithm: Weighted sum with self-learning")
-  table.insert(lines, string.format("Learning Rate: %.2f", config.learning_rate or 0.6))
+  fmt.add_label(lines, hl, "Algorithm", "Weighted sum with self-learning")
+  fmt.add_label(lines, hl, "Learning Rate", string.format("%.2f", config.learning_rate or 0.6))
   table.insert(lines, "")
 
   if item.nos then
-    -- Score totals
-    table.insert(lines, string.format("🎯 Total Neural Score: %.2f", item.nos.neural_score or 0))
+    fmt.add_label(lines, hl, "Total Neural Score", string.format("%.2f", item.nos.neural_score or 0))
     if item.score then
-      table.insert(lines, string.format("📋 Final Snacks Score: %.2f", item.score))
+      fmt.add_label(lines, hl, "Final Snacks Score", string.format("%.2f", item.score))
     end
     table.insert(lines, "")
 
-    -- Combined Raw and Normalized Features
-    table.insert(lines, "🔢 Features (Raw → Normalized):")
-    table.insert(lines, "")
-
+    -- Features table (raw + normalized)
     local all_features = scorer.FEATURE_NAMES
-
     local normalized_features = item.nos.input_buf and scorer.input_buf_to_features(item.nos.input_buf) or {}
 
+    local features_rows = { { "Features:", "Raw", "Normalized" } }
     for _, name in ipairs(all_features) do
       local raw_value = (item.nos.raw_features and item.nos.raw_features[name]) or 0
       local normalized_value = normalized_features[name] or 0
-
-      local formatted_name = name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
-      formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
-
-      table.insert(lines, string.format("  %-15s %8.2f → %6.4f", formatted_name .. ":", raw_value, normalized_value))
+      table.insert(features_rows, {
+        fmt.format_feature_name(name),
+        string.format("%.2f", raw_value),
+        string.format("%.4f", normalized_value),
+      })
     end
+    fmt.format_table(lines, hl, features_rows)
     table.insert(lines, "")
 
-    -- Weighted Components
-    table.insert(lines, "⚖️ Weighted Components (Normalized × Weight = Score):")
-    table.insert(lines, "")
-
-    -- Calculate components on-the-fly
+    -- Weighted components table
     local components = {}
     if item.nos.input_buf then
       components = calculate_components(item.nos.input_buf)
     end
 
-    -- Create sorted list
     local sorted_components = {}
     for _, name in ipairs(all_features) do
       local value = components[name] or 0
       table.insert(sorted_components, { name = name, value = value })
     end
-
     table.sort(sorted_components, function(a, b)
       return a.value > b.value
     end)
 
+    local weighted_rows = { { "Weighted:", "Norm", "Weight", "(Default)", "Score" } }
     for _, comp in ipairs(sorted_components) do
       local name = comp.name
-      local value = comp.value
-      local formatted_name = name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
-      formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
-
       local normalized = normalized_features[name] or 0
       local weight = weights[name] or 0
       local default_weights = get_default_weights()
       local default_weight = default_weights[name] or 0
-
-      table.insert(
-        lines,
-        string.format(
-          "  %-15s %6.4f × %6.1f (%6.1f) = %8.2f",
-          formatted_name .. ":",
-          normalized,
-          weight,
-          default_weight,
-          value
-        )
-      )
+      table.insert(weighted_rows, {
+        fmt.format_feature_name(name),
+        string.format("%.4f", normalized),
+        string.format("%.1f", weight),
+        string.format("(%.1f)", default_weight),
+        string.format("%.2f", comp.value),
+      })
     end
+    fmt.format_table(lines, hl, weighted_rows)
     table.insert(lines, "")
 
     -- Weight adjustment preview
     if all_items then
-      table.insert(lines, "📈 Potential Weight Adjustments (if selected):")
+      fmt.add_title(lines, hl, "Potential Weight Adjustments (if selected)")
       table.insert(lines, "")
 
       -- Find current item's rank
@@ -350,23 +337,23 @@ function M.debug_view(item, all_items)
       for i, ranked_item in ipairs(all_items) do
         if ranked_item.file == item.file then
           current_rank = i
-          item.neural_rank = i -- Ensure item has the rank
+          item.neural_rank = i
           break
         end
       end
 
       if current_rank and current_rank > 1 then
-        -- Simulate weight adjustments
         local simulation = M.simulate_weight_adjustments(item, all_items)
 
         if simulation and simulation.changes then
-          table.insert(
+          fmt.add_label(
             lines,
-            string.format("  Rank: #%d (comparing with %d higher items)", current_rank, simulation.compared_with)
+            hl,
+            "Rank",
+            string.format("#%d (comparing with %d higher items)", current_rank, simulation.compared_with)
           )
           table.insert(lines, "")
 
-          -- Sort changes by delta magnitude
           local sorted_changes = {}
           for key, change in pairs(simulation.changes) do
             table.insert(sorted_changes, { key = key, change = change })
@@ -376,24 +363,19 @@ function M.debug_view(item, all_items)
           end)
 
           for _, entry in ipairs(sorted_changes) do
-            local key = entry.key
             local change = entry.change
-            local formatted_key = key:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
-            formatted_key = formatted_key:sub(1, 1):upper() .. formatted_key:sub(2)
-
-            local arrow = change.delta > 0 and "↑" or "↓"
-            local color_indicator = change.delta > 0 and "+" or ""
-
-            table.insert(
+            local sign = change.delta > 0 and "+" or ""
+            fmt.add_label(
               lines,
+              hl,
+              fmt.format_feature_name(entry.key),
               string.format(
-                "  %-15s %s %6.2f → %6.2f (%s%.2f)",
-                formatted_key .. ":",
-                arrow,
+                "%.2f -> %.2f (%s%.2f) %s",
                 change.old,
                 change.new,
-                color_indicator,
-                change.delta
+                sign,
+                change.delta,
+                change.delta > 0 and "↑" or "↓"
               )
             )
           end
@@ -406,7 +388,7 @@ function M.debug_view(item, all_items)
     end
   end
 
-  return lines
+  return lines, hl
 end
 
 --- Get algorithm name

@@ -1591,71 +1591,60 @@ local function calculate_accuracy_averages()
   return averages
 end
 
+local fmt = require("neural-open.debug_fmt")
+
 --- Generate debug view for neural network algorithm
 ---@param item NeuralOpenItem
 ---@param all_items NeuralOpenItem[]?
----@return string[]
+---@return string[], table[]
 function M.debug_view(item, all_items)
   local lines = {}
+  local hl = {}
 
-  table.insert(lines, "🧠 Neural Network Algorithm")
+  fmt.add_title(lines, hl, "Neural Network Algorithm")
   table.insert(lines, "")
 
   local config = ensure_config()
-  table.insert(lines, "Architecture: " .. table.concat(config.architecture, " → "))
-  table.insert(lines, string.format("Learning Rate: %.4f", config.learning_rate))
-  table.insert(lines, string.format("Weight Decay: %.6f", config.weight_decay or 0))
-  table.insert(lines, string.format("Margin: %.2f", config.margin or 1.0))
+  fmt.add_label(lines, hl, "Architecture", table.concat(config.architecture, " -> "))
+  fmt.add_label(lines, hl, "Learning Rate", string.format("%.4f", config.learning_rate))
+  fmt.add_label(lines, hl, "Weight Decay", string.format("%.6f", config.weight_decay or 0))
+  fmt.add_label(lines, hl, "Margin", string.format("%.2f", config.margin or 1.0))
 
   -- Optimizer information
   local optimizer_name = state.optimizer_type == "adamw" and "AdamW" or "SGD"
-  table.insert(lines, "Optimizer: " .. optimizer_name)
+  fmt.add_label(lines, hl, "Optimizer", optimizer_name)
 
-  -- Warmup configuration and status
-  local warmup_steps = config.warmup_steps or 0
-  local warmup_start_factor = config.warmup_start_factor or 0.1
-  if warmup_steps > 0 then
-    table.insert(
-      lines,
-      string.format("Warmup: %d steps (start factor: %.1f%%)", warmup_steps, warmup_start_factor * 100)
-    )
-
-    -- Show current warmup factor if in warmup phase
-    if state.optimizer_state then
-      local current_timestep = state.optimizer_state.timestep or 0
-      if current_timestep > 0 and current_timestep <= warmup_steps then
-        local warmup_factor = calculate_warmup_factor(current_timestep, warmup_steps, warmup_start_factor)
-        table.insert(
-          lines,
-          string.format(
-            "  Current: step %d/%d (LR factor: %.1f%%)",
-            current_timestep,
-            warmup_steps,
-            warmup_factor * 100
-          )
-        )
-      elseif current_timestep > warmup_steps then
-        table.insert(lines, string.format("  Status: completed (at step %d)", current_timestep))
-      end
-    end
-  end
-
-  -- Optimizer-specific stats
+  -- Step counter with warmup info
   if state.optimizer_state then
-    if state.optimizer_type == "sgd" then
-      table.insert(lines, string.format("  Timestep: %d", state.optimizer_state.timestep or 0))
-    elseif state.optimizer_type == "adamw" then
-      table.insert(lines, string.format("  Timestep: %d", state.optimizer_state.timestep))
-      table.insert(
+    local current_timestep = state.optimizer_state.timestep or 0
+    local warmup_steps = config.warmup_steps or 0
+    local warmup_start_factor = config.warmup_start_factor or 0.1
+
+    if warmup_steps > 0 and current_timestep > 0 and current_timestep <= warmup_steps then
+      local warmup_factor = calculate_warmup_factor(current_timestep, warmup_steps, warmup_start_factor)
+      fmt.add_label(
         lines,
-        string.format("  Beta1: %.3f, Beta2: %.3f", config.adam_beta1 or 0.9, config.adam_beta2 or 0.999)
+        hl,
+        "Step",
+        string.format("%d/%d (warmup, LR factor: %.1f%%)", current_timestep, warmup_steps, warmup_factor * 100)
+      )
+    else
+      fmt.add_label(lines, hl, "Step", string.format("%d", current_timestep))
+    end
+
+    if state.optimizer_type == "adamw" then
+      fmt.add_label(
+        lines,
+        hl,
+        "Beta1/Beta2",
+        string.format("%.3f / %.3f", config.adam_beta1 or 0.9, config.adam_beta2 or 0.999),
+        4
       )
     end
   end
 
   -- AdamW moment statistics
   if state.optimizer_type == "adamw" and state.optimizer_state then
-    -- Calculate average moment magnitudes for first layer (as a representative sample)
     if state.optimizer_state.moments and state.optimizer_state.moments.first.weights[1] then
       local m_w = state.optimizer_state.moments.first.weights[1]
       local v_w = state.optimizer_state.moments.second.weights[1]
@@ -1670,9 +1659,12 @@ function M.debug_view(item, all_items)
       end
 
       if count > 0 then
-        table.insert(
+        fmt.add_label(
           lines,
-          string.format("  Avg 1st Moment: %.6f, Avg 2nd Moment: %.6f (L1)", m_sum / count, v_sum / count)
+          hl,
+          "Avg Moments (L1)",
+          string.format("1st: %.6f, 2nd: %.6f", m_sum / count, v_sum / count),
+          4
         )
       end
     end
@@ -1684,123 +1676,111 @@ function M.debug_view(item, all_items)
     for i, rate in ipairs(config.dropout_rates) do
       table.insert(dropout_str, string.format("L%d: %.1f%%", i, rate * 100))
     end
-    table.insert(lines, "Dropout Rates: " .. table.concat(dropout_str, ", "))
+    fmt.add_label(lines, hl, "Dropout Rates", table.concat(dropout_str, ", "))
 
-    -- Show active neuron percentages during training
     if state.stats.dropout_active_rates and next(state.stats.dropout_active_rates) then
       local active_str = {}
       for i, rate in pairs(state.stats.dropout_active_rates) do
         if rate ~= nil and rate > 0 then
-          -- Only show layers that actually have dropout applied
           table.insert(active_str, string.format("L%d: %.1f%%", i, rate))
         end
       end
       if #active_str > 0 then
-        table.insert(lines, "Active Neurons (last batch): " .. table.concat(active_str, ", "))
+        fmt.add_label(lines, hl, "Active Neurons (last batch)", table.concat(active_str, ", "))
       end
     end
   end
 
   -- Match dropout configuration
   if config.match_dropout and config.match_dropout > 0 then
-    table.insert(
+    fmt.add_label(
       lines,
-      string.format("Match Dropout: %.1f%% (match/virtual_name features)", config.match_dropout * 100)
+      hl,
+      "Match Dropout",
+      string.format("%.1f%% (match/virtual_name features)", config.match_dropout * 100)
     )
   end
 
   table.insert(lines, "")
 
   -- Training statistics
-  table.insert(lines, "Training Statistics:")
-  table.insert(lines, string.format("  Samples Processed: %d", state.stats.samples_processed or 0))
-  table.insert(lines, string.format("  Batches Trained: %d", state.stats.batches_trained or 0))
+  fmt.add_title(lines, hl, "Training Statistics")
+  table.insert(lines, "")
 
-  -- Calculate and display loss averages on a single line
+  -- Training metrics table (loss, accuracy, margin accuracy) — shown first
   local loss_averages = calculate_loss_averages()
-  local history_size = state.stats.loss_history and #state.stats.loss_history or 0
-
-  if history_size > 0 then
-    local loss_parts = {}
-
-    -- Add averages in order, showing partial buckets when appropriate
-    local windows = { 1, 10, 100, 1000 }
-    for _, window in ipairs(windows) do
-      if loss_averages[window] then
-        table.insert(loss_parts, string.format("[%d] %.6f", window, loss_averages[window]))
-      elseif window > history_size then
-        -- We've reached a window larger than our history size
-        -- Show the average of all available samples as a partial bucket
-        if loss_averages[history_size] then
-          table.insert(loss_parts, string.format("[%d] %.6f", history_size, loss_averages[history_size]))
-        end
-        break -- Don't show larger windows
-      end
-    end
-
-    if #loss_parts > 0 then
-      table.insert(lines, "  Avg Hinge Loss: " .. table.concat(loss_parts, " "))
-    end
-  else
-    table.insert(lines, string.format("  Last Hinge Loss: %.6f", state.stats.last_loss or 0))
-  end
-
-  -- Display ranking accuracy
   local accuracy_averages = calculate_accuracy_averages()
+  local loss_history_size = state.stats.loss_history and #state.stats.loss_history or 0
   local accuracy_history_size = state.stats.ranking_accuracy_history and #state.stats.ranking_accuracy_history or 0
 
-  if accuracy_history_size > 0 then
-    local accuracy_parts = {}
+  if loss_history_size > 0 or accuracy_history_size > 0 then
     local windows = { 1, 10, 100, 1000 }
-
-    for _, window in ipairs(windows) do
-      if accuracy_averages[window] then
-        table.insert(
-          accuracy_parts,
-          string.format(
-            "[%d] %.2f%% (%.2f%%)",
-            window,
-            accuracy_averages[window].correct_pct,
-            accuracy_averages[window].margin_pct
-          )
-        )
-      elseif window > accuracy_history_size and accuracy_averages[accuracy_history_size] then
-        -- Show partial bucket
-        table.insert(
-          accuracy_parts,
-          string.format(
-            "[%d] %.2f%% (%.2f%%)",
-            accuracy_history_size,
-            accuracy_averages[accuracy_history_size].correct_pct,
-            accuracy_averages[accuracy_history_size].margin_pct
-          )
-        )
-        break
+    local shown_windows = {}
+    for _, w in ipairs(windows) do
+      local has_loss = loss_averages[w] or (w > loss_history_size and loss_averages[loss_history_size])
+      local has_acc = accuracy_averages[w] or (w > accuracy_history_size and accuracy_averages[accuracy_history_size])
+      if has_loss or has_acc then
+        table.insert(shown_windows, w)
       end
     end
 
-    if #accuracy_parts > 0 then
-      table.insert(lines, "  Ranking Accuracy: " .. table.concat(accuracy_parts, " "))
+    if #shown_windows > 0 then
+      -- Build metrics table dynamically based on available windows
+      local header = { "" }
+      for _, w in ipairs(shown_windows) do
+        table.insert(header, w == 1 and "Last" or string.format("Avg %d", w))
+      end
+
+      local metrics_rows = { header }
+
+      -- Loss row
+      local loss_row = { "Loss:" }
+      for _, w in ipairs(shown_windows) do
+        local val = loss_averages[w] or loss_averages[loss_history_size]
+        table.insert(loss_row, val and string.format("%.4f", val) or "-")
+      end
+      table.insert(metrics_rows, loss_row)
+
+      -- Accuracy rows
+      if accuracy_history_size > 0 then
+        local acc_row = { "Accuracy:" }
+        local margin_row = { "Margin:" }
+        for _, w in ipairs(shown_windows) do
+          local val = accuracy_averages[w] or accuracy_averages[accuracy_history_size]
+          table.insert(acc_row, val and string.format("%.1f%%", val.correct_pct) or "-")
+          table.insert(margin_row, val and string.format("%.1f%%", val.margin_pct) or "-")
+        end
+        table.insert(metrics_rows, acc_row)
+        table.insert(metrics_rows, margin_row)
+      end
+
+      fmt.format_table(lines, hl, metrics_rows)
+      table.insert(lines, "")
     end
+  else
+    fmt.add_label(lines, hl, "Last Hinge Loss", string.format("%.6f", state.stats.last_loss or 0))
   end
 
-  table.insert(
+  fmt.add_label(lines, hl, "Samples Processed", string.format("%d", state.stats.samples_processed or 0))
+  fmt.add_label(lines, hl, "Batches Trained", string.format("%d", state.stats.batches_trained or 0))
+
+  fmt.add_label(
     lines,
-    string.format(
-      "  History Size: %d/%d pairs",
-      state.training_history and #state.training_history or 0,
-      config.history_size
-    )
+    hl,
+    "History Size",
+    string.format("%d/%d pairs", state.training_history and #state.training_history or 0, config.history_size)
   )
-  table.insert(lines, "  Training Mode: Pairwise Ranking (Hinge Loss)")
+  fmt.add_label(lines, hl, "Training Mode", "Pairwise Ranking (Hinge Loss)")
 
   -- Batch timing statistics
   local avg_timing = state.stats and state.stats.avg_batch_timing
   if avg_timing and avg_timing.total_ms then
-    table.insert(
+    fmt.add_label(
       lines,
+      hl,
+      "Avg Batch Time (last 10)",
       string.format(
-        "  Avg Batch Time (last 10): %.2fms (fwd: %.2fms, back: %.2fms, upd: %.2fms)",
+        "%.2fms (fwd: %.2fms, back: %.2fms, upd: %.2fms)",
         avg_timing.total_ms,
         avg_timing.forward_ms or 0,
         avg_timing.backward_ms or 0,
@@ -1811,75 +1791,68 @@ function M.debug_view(item, all_items)
 
   -- Loss interpretation
   if state.stats.last_loss and state.stats.last_loss > 0 then
-    table.insert(lines, string.format("  Loss Interpretation: Avg margin violation of %.4f", state.stats.last_loss))
-    table.insert(lines, string.format("    (Loss=0 means all pairs satisfy margin of %.2f)", config.margin or 1.0))
+    fmt.add_label(
+      lines,
+      hl,
+      "Loss Interpretation",
+      string.format("Avg margin violation of %.4f", state.stats.last_loss)
+    )
+    table.insert(lines, string.format("      (Loss=0 means all pairs satisfy margin of %.2f)", config.margin or 1.0))
   end
 
   table.insert(lines, "")
 
   if item.nos and item.nos.neural_score then
-    table.insert(lines, string.format("Current Score: %.4f", item.nos.neural_score))
-    table.insert(lines, "")
+    fmt.add_label(lines, hl, "Current Score", string.format("%.4f", item.nos.neural_score))
   end
 
-  -- Feature importance (based on first layer weights)
+  -- Combined feature table (importance + current values), sorted by importance
+  local normalized_features = nil
+  if item.nos and item.nos.input_buf then
+    normalized_features = input_buf_to_features(item.nos.input_buf)
+  end
+
   if state.weights and state.weights[1] then
-    table.insert(lines, "Feature Importance (first layer weights):")
     local feature_order = FEATURE_NAMES
 
-    local importance = {}
+    -- Compute importance (L1 norm of first-layer weights per feature)
+    local feature_data = {}
     for i, name in ipairs(feature_order) do
       local weight_sum = 0
       for j = 1, #state.weights[1][i] do
         weight_sum = weight_sum + math.abs(state.weights[1][i][j])
       end
-      importance[name] = weight_sum / #state.weights[1][i]
+      table.insert(feature_data, {
+        name = name,
+        importance = weight_sum / #state.weights[1][i],
+        value = normalized_features and normalized_features[name] or nil,
+      })
     end
 
-    -- Sort by importance
-    local sorted_importance = {}
-    for name, value in pairs(importance) do
-      table.insert(sorted_importance, { name = name, value = value })
-    end
-    table.sort(sorted_importance, function(a, b)
-      return a.value > b.value
+    table.sort(feature_data, function(a, b)
+      return a.importance > b.importance
     end)
 
-    for _, feature in ipairs(sorted_importance) do
-      local formatted_name = feature.name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
-      formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
-      table.insert(lines, string.format("  %-15s: %.4f", formatted_name, feature.value))
+    local feature_rows = { { "Features:", "Weight", "Value" } }
+    for _, f in ipairs(feature_data) do
+      table.insert(feature_rows, {
+        fmt.format_feature_name(f.name),
+        string.format("%.4f", f.importance),
+        f.value and string.format("%.4f", f.value) or "-",
+      })
     end
+
     table.insert(lines, "")
-  end
-
-  -- Current item features from input_buf
-  local normalized_features = nil
-  if item.nos and item.nos.input_buf then
-    normalized_features = input_buf_to_features(item.nos.input_buf)
-  end
-  if normalized_features then
-    table.insert(lines, "Input Features (normalized):")
-
-    local sorted_features = {}
-    for name, value in pairs(normalized_features) do
-      table.insert(sorted_features, { name = name, value = value })
-    end
-    table.sort(sorted_features, function(a, b)
-      return a.value > b.value
-    end)
-
-    for _, feature in ipairs(sorted_features) do
-      local formatted_name = feature.name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
-      formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
-      table.insert(lines, string.format("  %-15s: %.4f", formatted_name, feature.value))
-    end
+    fmt.format_table(lines, hl, feature_rows)
+    table.insert(lines, "")
+  elseif normalized_features then
+    fmt.append_feature_value_table(lines, hl, normalized_features)
   end
 
   -- Network prediction
   if normalized_features and state.weights then
+    fmt.add_title(lines, hl, "Network Prediction")
     table.insert(lines, "")
-    table.insert(lines, "Network Prediction:")
 
     -- No match dropout during inference/debug
     local input = features_to_input(item.nos.input_buf, false)
@@ -1919,30 +1892,26 @@ function M.debug_view(item, all_items)
       local activation = activations[i][1]
 
       if i < #activations then
-        -- For hidden layers, show activation pattern
         local active_count = 0
         for j = 1, #activation do
           if activation[j] > 0 then
             active_count = active_count + 1
           end
         end
-        table.insert(lines, string.format("  %s: %d/%d neurons active", layer_name, active_count, #activation))
+        fmt.add_label(lines, hl, layer_name, string.format("%d/%d neurons active", active_count, #activation))
 
-        -- Show batch norm status if available
         if state.gammas and state.gammas[i - 1] then
-          table.insert(
+          fmt.add_label(
             lines,
-            string.format(
-              "    BatchNorm: enabled (γ mean: %.4f, β mean: %.4f)",
-              state.gammas[i - 1][1][1],
-              state.betas[i - 1][1][1]
-            )
+            hl,
+            "BatchNorm",
+            string.format("enabled (mean: %.4f, bias: %.4f)", state.gammas[i - 1][1][1], state.betas[i - 1][1][1]),
+            4
           )
         end
       else
-        -- For output layer, show both logit and probability
-        table.insert(lines, string.format("  %s Logit: %.4f", layer_name, logit))
-        table.insert(lines, string.format("  %s Probability: %.4f (sigmoid)", layer_name, activation[1]))
+        fmt.add_label(lines, hl, layer_name .. " Logit", string.format("%.4f", logit))
+        fmt.add_label(lines, hl, layer_name .. " Probability", string.format("%.4f (sigmoid)", activation[1]))
       end
     end
   end
@@ -1950,16 +1919,17 @@ function M.debug_view(item, all_items)
   -- Weight statistics
   if state.stats.weight_norms and #state.stats.weight_norms > 0 then
     table.insert(lines, "")
-    table.insert(lines, "Weight Statistics:")
+    fmt.add_title(lines, hl, "Weight Statistics")
+    table.insert(lines, "")
     for i = 1, #state.stats.weight_norms do
       local layer_name = i < #state.stats.weight_norms and string.format("Layer %d", i) or "Output Layer"
-      table.insert(lines, string.format("  %s:", layer_name))
-      table.insert(lines, string.format("    L2 Norm: %.4f", state.stats.weight_norms[i] or 0))
-      table.insert(lines, string.format("    Avg Magnitude: %.4f", state.stats.avg_weight_magnitudes[i] or 0))
+      fmt.add_label(lines, hl, layer_name, "")
+      fmt.add_label(lines, hl, "L2 Norm", string.format("%.4f", state.stats.weight_norms[i] or 0), 4)
+      fmt.add_label(lines, hl, "Avg Magnitude", string.format("%.4f", state.stats.avg_weight_magnitudes[i] or 0), 4)
     end
   end
 
-  return lines
+  return lines, hl
 end
 
 --- Get algorithm name

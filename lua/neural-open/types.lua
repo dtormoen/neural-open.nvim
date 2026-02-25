@@ -8,7 +8,7 @@
 ---@class Algorithm
 ---@field calculate_score fun(input_buf: number[]): number Calculates the total score from a flat input buffer of normalized features
 ---@field update_weights fun(selected_item: NeuralOpenItem, ranked_items: NeuralOpenItem[], latency_ctx?: table): nil Updates internal weights based on user selection for learning algorithms. Called when user selects an item that wasn't ranked #1. Optional latency_ctx for performance tracking
----@field debug_view fun(item: NeuralOpenItem, all_items?: NeuralOpenItem[]): string[] Generates debug information specific to this algorithm
+---@field debug_view fun(item: NeuralOpenItem, all_items?: NeuralOpenItem[]): string[], table[]? Generates debug information specific to this algorithm. Optional second return value is highlight specs {row, col, end_col, group}
 ---@field get_name fun(): AlgorithmName Returns the display name of the algorithm
 ---@field init fun(config: table): nil Initialize the algorithm with configuration
 ---@field load_weights fun(): nil Load the latest weights from the weights module
