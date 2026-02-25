@@ -706,9 +706,12 @@ local function construct_batches(current_pairs, history, batch_size, num_batches
   -- Minimum batch size: 50% of target batch size
   local min_batch_size = math.ceil(batch_size * 0.5)
 
-  -- First batch always includes current pairs
+  -- First batch includes current pairs (up to batch_size)
   local first_batch_pairs = {}
   for _, pair in ipairs(current_pairs) do
+    if #first_batch_pairs >= batch_size then
+      break
+    end
     table.insert(first_batch_pairs, pair)
   end
 

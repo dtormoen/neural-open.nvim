@@ -597,9 +597,6 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("trains network to prefer positive over negative item", function()
-      -- Fix random seed for deterministic test behavior
-      math.randomseed(42)
-
       -- Create features where positive should score higher
       local positive_features = {
         match = 0.9,
