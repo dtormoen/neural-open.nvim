@@ -23,7 +23,7 @@
 ---@field project number Binary: 1 if in project/cwd, 0 otherwise
 ---@field recency number Raw recency rank (1-based position in persistent recency list)
 ---@field trigram number Raw trigram similarity score (0-1 Dice coefficient)
----@field transition number Raw transition score (0-1 based on transition count)
+---@field transition number Raw transition frecency score (exponentially-decayed visit score, 0-∞)
 
 ---@class NosNormalizedFeatures
 ---@field match number Normalized to [0,1] using sigmoid
@@ -35,7 +35,7 @@
 ---@field project number Already [0,1] binary
 ---@field recency number Normalized to [0,1] using (max - rank + 1) / max (linear decay)
 ---@field trigram number Already [0,1] from Dice coefficient
----@field transition number Already [0,1] from calculation (1-1/(1+count))
+---@field transition number Already [0,1] from calculation (1-1/(1+score/4))
 
 ---@class NosContext
 ---@field recent_files table<string, {recent_rank: number}> Recent files mapping
@@ -112,6 +112,5 @@
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations
 ---@field weights_path string Path to store learned weights
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
----@field transition_history_size number Ring buffer size for transition history (default 200)
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)
 ---@field debug NosDebugConfig Debug settings

@@ -8,7 +8,7 @@ Inspired by [smart-open.nvim](https://github.com/danielfalk/smart-open.nvim), bu
 
 - **Neural Network Ranking**: An MLP trains online from your selections using pairwise hinge loss, learning to rank files by relative preference
 - **Pre-trained Defaults**: Ships with default weights trained on over 16k samples so ranking is useful from the first launch
-- **10 Scoring Features**: Fuzzy match, virtual name, open/alternate buffer, directory proximity, project scope, frecency, recency, trigram similarity, and file transition history
+- **10 Scoring Features**: Fuzzy match, virtual name, open/alternate buffer, directory proximity, project scope, frecency, recency, trigram similarity, and file transition frecency
 - **Self-Learning**: Adapts to your navigation patterns over time and persists learned weights across sessions
 - **Score Preview**: Enable `debug.preview` to watch the model's score breakdowns and training in real time
 - **Multiple Algorithms**: Neural network (default), classic weighted sum based on smart-open.nvim, or naive baseline
@@ -90,9 +90,6 @@ require("neural-open").setup({
 
   -- Path to JSON file storing learned weights
   weights_path = vim.fn.stdpath("data") .. "/neural-open/weights.json",
-
-  -- Ring buffer size for file transition history
-  transition_history_size = 200,
 
   -- Maximum number of files in persistent recency list
   recency_list_size = 100,
@@ -196,7 +193,7 @@ Each file receives a score based on 10 features, all normalized to [0,1]:
 7. **Frecency**: Frequency + recency score from Snacks.nvim's built-in frecency tracking, normalized with `1 - 1/(1 + x/8)`
 8. **Recency**: Position in a persistent most-recently-accessed list (updated on BufEnter), scored with linear decay: `(max - rank + 1) / max`
 9. **Trigram**: Character-level similarity between the candidate's virtual name and the current filename using Dice coefficient over 3-character trigram sets
-10. **Transition**: Learned file-to-file navigation frequency from a ring buffer of past selections, scored with `1 - 1/(1 + count)`
+10. **Transition**: Learned file-to-file navigation patterns using frecency with exponential decay (30-day half-life), scored with `1 - 1/(1 + score/4)`
 
 ### Neural Network Algorithm (default)
 

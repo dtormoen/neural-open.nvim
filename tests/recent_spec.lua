@@ -163,7 +163,7 @@ describe("recent module", function()
       mock_db.weights_data = {
         classic = { match = 100 },
         nn = { weights = { { { 1, 2 } } } },
-        transition_history = { { from = "/a", to = "/b", timestamp = 1 } },
+        transition_frecency = { ["/a"] = { ["/b"] = 1000000000 } },
       }
 
       -- Re-load to pick up existing data
@@ -176,7 +176,7 @@ describe("recent module", function()
       local data = mock_db.get_weights()
       assert.equals(100, data.classic.match)
       assert.is_not_nil(data.nn.weights)
-      assert.equals(1, #data.transition_history)
+      assert.is_not_nil(data.transition_frecency["/a"]["/b"])
       assert.is_not_nil(data.recency_list)
     end)
 

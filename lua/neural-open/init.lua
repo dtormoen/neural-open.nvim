@@ -54,7 +54,6 @@ M.config = {
     ["init.vim"] = true,
     ["mod.rs"] = true,
   },
-  transition_history_size = 200, -- Ring buffer size for transition history
   recency_list_size = 100, -- Maximum number of files in persistent recency list
   -- Debug settings (all optional, for development/troubleshooting)
   debug = {

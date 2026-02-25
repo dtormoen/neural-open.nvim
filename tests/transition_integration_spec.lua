@@ -18,6 +18,8 @@ describe("transition integration", function()
   local classic
   local mock_db
   local mock_neural_open
+  local original_os_time
+  local mock_time
 
   before_each(function()
     helpers.setup()
@@ -35,10 +37,16 @@ describe("transition integration", function()
 
     mock_neural_open = {
       config = helpers.create_test_config({
-        transition_history_size = 200,
         algorithm = "classic",
       }),
     }
+
+    -- Control time for deterministic tests
+    mock_time = 1000000000
+    original_os_time = os.time
+    os.time = function() -- luacheck: ignore 122
+      return mock_time
+    end
 
     -- Replace modules
     package.loaded["neural-open.db"] = mock_db
@@ -58,6 +66,7 @@ describe("transition integration", function()
   end)
 
   after_each(function()
+    os.time = original_os_time -- luacheck: ignore 122
     package.loaded["neural-open.db"] = nil
     package.loaded["neural-open"] = nil
     package.loaded["neural-open.transitions"] = nil
@@ -67,11 +76,10 @@ describe("transition integration", function()
 
   describe("full flow: record -> compute -> score", function()
     it("should boost file score after recording transition", function()
-      -- Initial state: no transitions
       local source_file = "/test/project/a.lua"
       local dest_file = "/test/project/b.lua"
 
-      -- Compute initial scores (no transition history)
+      -- Initial state: no transitions
       local scores_before = transitions.compute_scores_from(source_file)
       assert.same({}, scores_before)
 
@@ -80,7 +88,7 @@ describe("transition integration", function()
 
       -- Compute scores again
       local scores_after = transitions.compute_scores_from(source_file)
-      assert.equals(0.5, scores_after[dest_file]) -- 1-1/(1+1)
+      assert.is_near(0.2, scores_after[dest_file], 0.001) -- 1-1/(1+1/4)
 
       -- Verify scoring pipeline integrates the transition
       local context = {
@@ -98,10 +106,10 @@ describe("transition integration", function()
         virtual_name = "b.lua",
       }
       local raw_features = scorer.compute_static_raw_features(dest_file, context, item_data)
-      assert.equals(0.5, raw_features.transition)
+      assert.is_near(0.2, raw_features.transition, 0.001)
 
       local normalized_features = scorer.normalize_features(raw_features)
-      assert.equals(0.5, normalized_features.transition)
+      assert.is_near(0.2, normalized_features.transition, 0.001)
 
       -- Calculate score with classic algorithm using flat input_buf
       local input_buf = make_input_buf(raw_features)
@@ -120,7 +128,7 @@ describe("transition integration", function()
 
       -- Compute scores
       local scores = transitions.compute_scores_from(source_file)
-      assert.is_near(0.833, scores[dest_file], 0.001) -- 1-1/(1+5)
+      assert.is_near(0.556, scores[dest_file], 0.001) -- 1-1/(1+5/4)
 
       -- Create context with transition scores
       local context = {
@@ -138,7 +146,7 @@ describe("transition integration", function()
         virtual_name = "b.lua",
       }
       local raw_features = scorer.compute_static_raw_features(dest_file, context, item_data)
-      assert.is_near(0.833, raw_features.transition, 0.001)
+      assert.is_near(0.556, raw_features.transition, 0.001)
     end)
 
     it("should handle multiple destination files", function()
@@ -150,20 +158,17 @@ describe("transition integration", function()
       transitions.record_transition(source_file, dest_b)
       transitions.record_transition(source_file, dest_b)
 
-      transitions.record_transition(source_file, dest_c)
-      transitions.record_transition(source_file, dest_c)
-      transitions.record_transition(source_file, dest_c)
-      transitions.record_transition(source_file, dest_c)
-      transitions.record_transition(source_file, dest_c)
+      for _ = 1, 5 do
+        transitions.record_transition(source_file, dest_c)
+      end
 
       -- Compute scores
       local scores = transitions.compute_scores_from(source_file)
 
-      -- b.lua: 2 transitions = 1-1/(1+2) = 0.666...
-      assert.is_near(0.666, scores[dest_b], 0.001)
-
-      -- c.lua: 5 transitions = 1-1/(1+5) = 0.833...
-      assert.is_near(0.833, scores[dest_c], 0.001)
+      -- b.lua: 2 visits → 1-1/(1+2/4) ≈ 0.333
+      assert.is_near(0.333, scores[dest_b], 0.001)
+      -- c.lua: 5 visits → 1-1/(1+5/4) ≈ 0.556
+      assert.is_near(0.556, scores[dest_c], 0.001)
 
       -- Create context with transition scores
       local context = {
@@ -203,16 +208,13 @@ describe("transition integration", function()
 
   describe("edge cases", function()
     it("should handle no current file (empty string)", function()
-      -- No current file
       local scores = transitions.compute_scores_from("")
       assert.same({}, scores)
 
-      -- Create context without current file
       local context = {
         cwd = "/test/project",
         current_file = "",
         recent_files = {},
-        -- No transition_scores
         algorithm = classic,
       }
 
@@ -226,20 +228,16 @@ describe("transition integration", function()
       assert.equals(0, raw_features.transition)
     end)
 
-    it("should not record transition to same file", function()
+    it("should not error on self-transition", function()
       local same_file = "/test/project/a.lua"
 
       transitions.record_transition(same_file, same_file)
 
-      -- This would normally be prevented by init.lua logic, but if it happens:
-      -- It will be recorded, but compute_scores_from will find it
       local scores = transitions.compute_scores_from(same_file)
-      -- Same file transition should still be scored (implementation allows this)
-      assert.equals(0.5, scores[same_file])
+      assert.is_near(0.2, scores[same_file], 0.001)
     end)
 
     it("should handle missing weights data", function()
-      -- db.get_weights returns nil
       mock_db.get_weights = function()
         return nil
       end
@@ -254,13 +252,10 @@ describe("transition integration", function()
       local source_file = "/test/project/a.lua"
       local dest_file = "/test/project/b.lua"
 
-      -- Record one transition
       transitions.record_transition(source_file, dest_file)
 
-      -- Get transition scores
       local scores = transitions.compute_scores_from(source_file)
 
-      -- Create minimal context
       local context = {
         cwd = "/test/project",
         current_file = source_file,
@@ -285,7 +280,7 @@ describe("transition integration", function()
 
       -- Calculate expected transition contribution
       local expected_contribution = normalized_features.transition * transition_weight
-      assert.equals(0.5 * 5, expected_contribution) -- 2.5
+      assert.is_near(0.2 * 5, expected_contribution, 0.01) -- 1.0
 
       -- Calculate total score using flat input_buf
       local input_buf = make_input_buf(raw_features)
@@ -296,32 +291,26 @@ describe("transition integration", function()
     end)
   end)
 
-  describe("ring buffer overflow", function()
-    it("should maintain history limit during integration", function()
-      -- Update config to small limit
-      mock_neural_open.config.transition_history_size = 3
-
+  describe("frecency decay in integration", function()
+    it("should show lower scores after time passes", function()
       local source_file = "/test/project/a.lua"
+      local dest_file = "/test/project/b.lua"
 
-      -- Record 5 transitions (over limit of 3)
-      for i = 1, 5 do
-        transitions.record_transition(source_file, "/test/project/b" .. i .. ".lua")
+      -- Record transitions at current time
+      for _ = 1, 3 do
+        transitions.record_transition(source_file, dest_file)
       end
 
-      -- Check history size
-      local data = mock_db.get_weights()
-      assert.equals(3, #data.transition_history)
+      -- Score now
+      local scores_now = transitions.compute_scores_from(source_file)
 
-      -- Compute scores - should only reflect last 3 transitions
-      local scores = transitions.compute_scores_from(source_file)
+      -- Advance 60 days (two half-lives)
+      mock_time = mock_time + 60 * 24 * 3600
 
-      -- Should have b3, b4, b5 (each with count 1, score 0.5)
-      -- b1 and b2 should be removed
-      local count = 0
-      for _ in pairs(scores) do
-        count = count + 1
-      end
-      assert.equals(3, count)
+      -- Score after 60 days
+      local scores_later = transitions.compute_scores_from(source_file)
+
+      assert.is_true(scores_later[dest_file] < scores_now[dest_file])
     end)
   end)
 end)

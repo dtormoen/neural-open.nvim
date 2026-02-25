@@ -57,7 +57,7 @@ The plugin uses a multi-factor scoring algorithm that combines:
 - Frecency (frequency + recency with exponential decay)
 - Recent file ranking (persistent recency list with linear decay scoring)
 - Trigram similarity (character-level similarity to current file)
-- File transition tracking (learns common file-to-file navigation patterns)
+- File transition frecency (learns common file-to-file navigation patterns with exponential decay)
 
 ### Self-Learning Mechanism
 
@@ -113,7 +113,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 - **Weights file**: JSON file storing learned weight adjustments per algorithm
   - Classic algorithm: Feature weights
   - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format), and format version
-  - Transition history: Ring buffer of file-to-file navigation patterns (shared between algorithms, default 200 entries)
+  - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
   - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI
@@ -295,7 +295,7 @@ The plugin is highly configurable with settings for:
 - **Regularization**: Weight decay, dropout rates, match_dropout, layer-specific decay multipliers for Neural Network
 - **Training stability**: Learning rate warmup for Neural Network (recommended for AdamW)
 - **Ranking margin**: Configurable margin for pairwise hinge loss (default 1.0) - controls minimum score difference between selected and non-selected items
-- **Transition history**: Configurable ring buffer size for tracking file-to-file navigation patterns (default 200)
+- **Transition frecency**: File-to-file navigation patterns tracked with exponential decay (30-day half-life), automatically pruned
 - **Recency list**: Persistent ordered list of recently accessed files, updated on BufEnter with debounced disk writes (default 100 entries, configurable via `recency_list_size`)
 - **Performance debugging**: Latency tracking to diagnose performance issues (disabled by default for zero overhead)
 
