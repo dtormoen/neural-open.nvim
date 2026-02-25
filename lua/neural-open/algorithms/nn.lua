@@ -1106,12 +1106,20 @@ local function prepare_inference_cache()
     input_buf[j] = 0
   end
 
+  -- Precompute input sizes per layer (eliminates #current in hot loop)
+  local input_sizes = {}
+  input_sizes[1] = input_size
+  for i = 2, num_layers do
+    input_sizes[i] = #biases[i - 1]
+  end
+
   state.inference_cache = {
     weights_t = weights_t,
     biases = biases,
     buffers = buffers,
     input_buf = input_buf,
     num_layers = num_layers,
+    input_sizes = input_sizes,
   }
 end
 
@@ -1285,10 +1293,14 @@ end
 
 --- Calculate score using neural network from a flat input buffer.
 --- The input_buf is used directly as the first layer's input (read-only, not modified).
+--- IMPORTANT: load_weights() must be called before first use (done in capture_context)
 ---@param input_buf number[] Flat array of 10 normalized features in canonical order
 ---@return number Score in [0, 100]
 function M.calculate_score(input_buf)
-  ensure_weights()
+  -- Lazy-load weights if not yet initialized (hot path skips this after first call)
+  if not state.inference_cache then
+    ensure_weights()
+  end
 
   if not state.inference_cache then
     -- Fallback to general forward_pass when inference cache unavailable (e.g., empty/invalid weights)
@@ -1310,6 +1322,7 @@ function M.calculate_score(input_buf)
 
   local cache = state.inference_cache --[[@as table]]
   local num_layers = cache.num_layers
+  local input_sizes = cache.input_sizes
   local current = input_buf -- Use directly as first-layer input (read-only)
 
   for layer = 1, num_layers do
@@ -1317,11 +1330,12 @@ function M.calculate_score(input_buf)
     local b = cache.biases[layer]
     local buf = cache.buffers[layer]
     local out_size = #b
+    local in_size = input_sizes[layer]
 
     for j = 1, out_size do
       local wt_j = wt[j]
       local sum = b[j]
-      for k = 1, #current do
+      for k = 1, in_size do
         sum = sum + current[k] * wt_j[k]
       end
 

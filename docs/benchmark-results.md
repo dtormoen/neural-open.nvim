@@ -160,12 +160,66 @@ Weight loading:         0.01ms total (one-time)
 - Speedup increases with repo size due to reduced GC pressure (zero per-keystroke allocations for NN)
 - At 100K files, per-keystroke drops from ~112ms to 78ms — a 34ms reduction per keystroke
 
+## Inference & Scoring Hot Path
+
+Optimizes the per-keystroke NN scoring path and reduces overhead in the
+transform/static features phase:
+
+- Remove `ensure_weights()` nil-check from `calculate_score_direct()` / `calculate_score()` (called per-item per-keystroke; weights guaranteed loaded by `capture_context`)
+- Precompute `input_sizes[]` in inference cache (eliminates `#current` in inner dot-product loop)
+- Inline `normalize_match_score` / `normalize_frecency` in `on_match_handler` NN fast path (eliminates 3 function calls per item per keystroke)
+- Cache `vim.fn.has("win32")` at module level in `source.lua` (eliminates per-item Vimscript bridge call)
+- Cache `recency_list_size` at module level in `scorer.lua` (eliminates per-call `require()`)
+- Zero-allocation trigram computation using packed integer keys (`b1*65536 + b2*256 + b3`)
+- Add isolated trigram benchmark to measure trigram cost separately
+
+```
+--- 1,000 files ---
+Static features:        0.54ms total |  0.535us/item
+Per-keystroke:          0.71ms total |  0.712us/item
+Per-keystroke fast:     0.63ms total |  0.626us/item
+  normalize:            0.02ms total |  0.024us/item
+  nn_inference:         0.61ms total |  0.614us/item
+  trigrams:             0.34ms total |  0.340us/item
+Transform phase:        0.97ms total |  0.968us/item
+Weight loading:         0.01ms total (one-time)
+
+--- 10,000 files ---
+Static features:        6.82ms total |  0.682us/item
+Per-keystroke:          7.53ms total |  0.753us/item
+Per-keystroke fast:     6.44ms total |  0.644us/item
+  normalize:            0.35ms total |  0.035us/item
+  nn_inference:         6.23ms total |  0.623us/item
+  trigrams:             3.90ms total |  0.390us/item
+Transform phase:       11.85ms total |  1.185us/item
+Weight loading:         0.01ms total (one-time)
+
+--- 100,000 files ---
+Static features:      128.35ms total |  1.284us/item
+Per-keystroke:         99.19ms total |  0.992us/item
+Per-keystroke fast:    77.76ms total |  0.778us/item
+  normalize:           14.81ms total |  0.148us/item
+  nn_inference:        70.94ms total |  0.709us/item
+  trigrams:            65.24ms total |  0.652us/item
+Transform phase:      168.98ms total |  1.690us/item
+Weight loading:         0.01ms total (one-time)
+```
+
+| Metric | 1K files | 10K files | 100K files |
+|--------|----------|-----------|------------|
+| NN inference (per item) | 0.83 → 0.61 us (**1.3x**) | 0.82 → 0.62 us (**1.3x**) | 0.94 → 0.71 us (**1.3x**) |
+| Per-keystroke fast (per item) | 0.71 → 0.63 us (**1.1x**) | 0.71 → 0.64 us (**1.1x**) | 0.78 → 0.78 us (**1.0x**) |
+
+- **1.3x faster** NN inference from eliminating `ensure_weights()` overhead and precomputing layer sizes
+- Inline normalization reduces function call overhead in the per-keystroke fast path
+- Trigram benchmark added for visibility into static feature costs (trigrams ~50% of static features at scale)
+
 ## Cumulative Impact
 
 End-to-end improvement from baseline to current state at 100K files:
 
 | Metric | Baseline (69d7b15) | Current | Speedup |
 |--------|-------------------|---------|---------|
-| Static features | 632ms (6.32 us/item) | 121ms (1.21 us/item) | **5.2x** |
+| Static features | 632ms (6.32 us/item) | 128ms (1.28 us/item) | **4.9x** |
 | Per-keystroke | 1155ms (11.55 us/item) | 78ms (0.78 us/item) | **14.8x** |
-| NN inference | 1039ms (10.39 us/item) | 84ms (0.83 us/item) | **12.4x** |
+| NN inference | 1039ms (10.39 us/item) | 71ms (0.71 us/item) | **14.6x** |

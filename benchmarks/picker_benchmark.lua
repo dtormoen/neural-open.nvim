@@ -395,7 +395,40 @@ for _, size in ipairs(REPO_SIZES) do
     end
   end)
 
-  -- 3. Transform phase: full per-item processing during discovery
+  -- 3. Normalize alone
+  local normalize_median = benchmark(function()
+    for _, item in ipairs(items) do
+      scorer.normalize_features(item.nos.raw_features)
+    end
+  end)
+
+  -- 4. NN inference alone (pre-normalize once, then measure inference)
+  local pre_normalized = {}
+  for i, item in ipairs(items) do
+    local input_buf = item.nos.input_buf
+    pre_normalized[i] = { unpack(input_buf) }
+  end
+
+  local nn_median = benchmark(function()
+    for _, buf in ipairs(pre_normalized) do
+      nn.calculate_score(buf)
+    end
+  end)
+
+  -- 5. Trigram computation (isolated from static features)
+  local virtual_names = {}
+  for i, item in ipairs(items) do
+    virtual_names[i] = item.nos.virtual_name or item.nos.normalized_path:match("[^/]+$") or ""
+  end
+
+  local trigram_median = benchmark(function()
+    for i = 1, #virtual_names do
+      local target_tris = trigrams.compute_trigrams(virtual_names[i])
+      trigrams.dice_coefficient(context.current_file_trigrams, target_tris)
+    end
+  end)
+
+  -- 6. Transform phase: full per-item processing during discovery
   local transform_median = benchmark(function()
     local done = {}
     for _, item in ipairs(items) do
@@ -414,7 +447,7 @@ for _, size in ipairs(REPO_SIZES) do
     end
   end)
 
-  -- 4. Weight loading: load_weights triggers ensure_weights(true) + prepare_inference_cache
+  -- 7. Weight loading: load_weights triggers ensure_weights(true) + prepare_inference_cache
   local load_median = benchmark(function()
     nn.load_weights()
   end)
@@ -425,6 +458,9 @@ for _, size in ipairs(REPO_SIZES) do
   print(string.format("--- %s files ---", formatted_size))
   print(string.format("Static features:    %s", format_timing(static_median, size)))
   print(string.format("Per-keystroke:      %s", format_timing(keystroke_median, size)))
+  print(string.format("  normalize:        %s", format_timing(normalize_median, size)))
+  print(string.format("  nn_inference:     %s", format_timing(nn_median, size)))
+  print(string.format("  trigrams:         %s", format_timing(trigram_median, size)))
   print(string.format("Transform phase:    %s", format_timing(transform_median, size)))
   print(string.format("Weight loading:     %8.2fms total (one-time)", load_median / 1e6))
 end

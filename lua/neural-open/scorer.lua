@@ -18,6 +18,9 @@ function M.input_buf_to_features(input_buf)
   return features
 end
 
+-- Cached config value, updated via set_recency_list_size()
+local _recency_list_size = 100
+
 -- Reusable temp items for matcher calls in on_match_handler (avoids 2 allocations per item per keystroke)
 local _mock_item = { text = "", idx = 1, score = 0 }
 local _temp_item = { text = "", idx = 1, score = 0 }
@@ -122,6 +125,12 @@ function M.get_virtual_name(path, special_files)
   return filename
 end
 
+--- Update the cached recency list size from config
+---@param size number
+function M.set_recency_list_size(size)
+  _recency_list_size = size or 100
+end
+
 ---@param recent_rank number?
 ---@param max_items number?
 ---@return number
@@ -129,7 +138,7 @@ function M.calculate_recency_score(recent_rank, max_items)
   if not recent_rank or recent_rank <= 0 then
     return 0
   end
-  max_items = max_items or require("neural-open").config.recency_list_size or 100
+  max_items = max_items or _recency_list_size
   if recent_rank > max_items then
     return 0
   end

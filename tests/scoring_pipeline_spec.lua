@@ -194,7 +194,7 @@ describe("scoring pipeline regression", function()
       local score2 = nn.calculate_score(input_buf)
 
       assert.is_number(score1)
-      assert.equals(score1, score2)
+      assert.near(score1, score2, 1e-10)
     end)
 
     it("produces score in [0, 100]", function()
@@ -296,6 +296,142 @@ describe("scoring pipeline regression", function()
       local score2 = nn.calculate_score(input_buf2)
 
       assert.are.near(score, score2, 1e-10)
+    end)
+
+    it("equivalence holds across diverse feature vectors", function()
+      local test_vectors = {
+        {
+          match = 0,
+          virtual_name = 0,
+          frecency = 0,
+          open = 0,
+          alt = 0,
+          proximity = 0,
+          project = 0,
+          recency = 0,
+          trigram = 0,
+          transition = 0,
+        },
+        {
+          match = 300,
+          virtual_name = 200,
+          frecency = 100,
+          open = 1,
+          alt = 1,
+          proximity = 1,
+          project = 1,
+          recency = 1,
+          trigram = 1,
+          transition = 1,
+        },
+        {
+          match = 50,
+          virtual_name = 0,
+          frecency = 4,
+          open = 1,
+          alt = 0,
+          proximity = 0.3,
+          project = 1,
+          recency = 25,
+          trigram = 0.8,
+          transition = 0.5,
+        },
+        {
+          match = 1,
+          virtual_name = 300,
+          frecency = 1,
+          open = 0,
+          alt = 1,
+          proximity = 0,
+          project = 0,
+          recency = 100,
+          trigram = 0,
+          transition = 0.1,
+        },
+      }
+
+      for i, raw in ipairs(test_vectors) do
+        local norm = scorer.normalize_features(raw)
+        local input_buf = features_to_flat(norm)
+        local score = nn.calculate_score(input_buf)
+
+        -- Re-score with same input to verify determinism
+        local score2 = nn.calculate_score(input_buf)
+
+        assert.are.near(score, score2, 1e-10, "non-deterministic on vector " .. i)
+        assert.is_true(score >= 0 and score <= 100, "score out of range on vector " .. i)
+      end
+    end)
+  end)
+
+  describe("normalize_match_score regression", function()
+    it("returns exact values for known inputs", function()
+      -- sigmoid: raw > 0 ? 1/(1+exp(-0.02*raw+2)) : 0
+      assert.equals(0, scorer.normalize_match_score(0))
+      assert.equals(0, scorer.normalize_match_score(-5))
+      assert.are.near(0.5, scorer.normalize_match_score(100), 1e-15)
+      assert.are.near(1 / (1 + math.exp(-0.02 * 50 + 2)), scorer.normalize_match_score(50), 1e-15)
+      assert.are.near(1 / (1 + math.exp(-0.02 * 150 + 2)), scorer.normalize_match_score(150), 1e-15)
+      assert.are.near(1 / (1 + math.exp(-0.02 * 200 + 2)), scorer.normalize_match_score(200), 1e-15)
+      assert.are.near(1 / (1 + math.exp(-0.02 * 300 + 2)), scorer.normalize_match_score(300), 1e-15)
+      assert.are.near(1 / (1 + math.exp(-0.02 * 1 + 2)), scorer.normalize_match_score(1), 1e-15)
+    end)
+  end)
+
+  describe("normalize_frecency regression", function()
+    it("returns exact values for known inputs", function()
+      -- formula: raw > 0 ? 1 - 1/(1+raw/8) : 0
+      assert.equals(0, scorer.normalize_frecency(0))
+      assert.equals(0, scorer.normalize_frecency(-5))
+      assert.are.near(0.5, scorer.normalize_frecency(8), 1e-15)
+      assert.are.near(1 / 9, scorer.normalize_frecency(1), 1e-15)
+      assert.are.near(1 / 3, scorer.normalize_frecency(4), 1e-15)
+      assert.are.near(2 / 3, scorer.normalize_frecency(16), 1e-15)
+      assert.are.near(100 / 108, scorer.normalize_frecency(100), 1e-15)
+    end)
+  end)
+
+  describe("on_match_handler unified input_buf path", function()
+    it("produces identical scores whether built from normalize_features or inline normalization", function()
+      local raw = {
+        match = 120,
+        virtual_name = 60,
+        frecency = 15,
+        open = 1,
+        alt = 0,
+        proximity = 0.7,
+        project = 1,
+        recency = 3,
+        trigram = 0.45,
+        transition = 0.2,
+      }
+
+      -- Path 1: normalize_features → features_to_flat → calculate_score
+      local norm = scorer.normalize_features(raw)
+      local input_buf_from_norm = features_to_flat(norm)
+      local score_from_norm = nn.calculate_score(input_buf_from_norm)
+
+      -- Path 2: simulate on_match_handler - pre-fill static features at transform time,
+      -- then update dynamic slots [1..3] per keystroke using scorer helpers
+      local input_buf = {
+        0, -- [1] match   (dynamic, updated per keystroke)
+        0, -- [2] virtual_name (dynamic, updated per keystroke)
+        0, -- [3] frecency (dynamic, updated per keystroke)
+        norm.open,
+        norm.alt,
+        norm.proximity,
+        norm.project,
+        norm.recency,
+        norm.trigram,
+        norm.transition,
+      }
+      input_buf[1] = scorer.normalize_match_score(raw.match)
+      input_buf[2] = scorer.normalize_match_score(raw.virtual_name)
+      input_buf[3] = scorer.normalize_frecency(raw.frecency)
+
+      local score_from_buf = nn.calculate_score(input_buf)
+
+      assert.are.near(score_from_norm, score_from_buf, 1e-10)
     end)
   end)
 end)

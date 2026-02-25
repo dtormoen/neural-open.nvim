@@ -61,10 +61,14 @@ describe("trigram scoring integration", function()
       source.capture_context(ctx)
 
       assert.is_not_nil(ctx.meta.nos_ctx.current_file_trigrams)
-      -- Check for some expected trigrams from "test_helper.js"
-      assert.is_true(ctx.meta.nos_ctx.current_file_trigrams["tes"] or false)
-      assert.is_true(ctx.meta.nos_ctx.current_file_trigrams["hel"] or false)
-      assert.is_true(ctx.meta.nos_ctx.current_file_trigrams[".js"] or false)
+      -- Trigrams use packed integer keys (b1*65536 + b2*256 + b3)
+      -- Check for expected trigrams from "test_helper.js"
+      local function pack(a, b, c)
+        return string.byte(a) * 65536 + string.byte(b) * 256 + string.byte(c)
+      end
+      assert.is_true(ctx.meta.nos_ctx.current_file_trigrams[pack("t", "e", "s")] or false)
+      assert.is_true(ctx.meta.nos_ctx.current_file_trigrams[pack("h", "e", "l")] or false)
+      assert.is_true(ctx.meta.nos_ctx.current_file_trigrams[pack(".", "j", "s")] or false)
     end)
 
     it("should handle no current file", function()

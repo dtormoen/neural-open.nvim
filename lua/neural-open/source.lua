@@ -8,6 +8,7 @@ local _has_fs_normalize = (function()
   return ok and result
 end)()
 local _normalize_opts = { expand_env = false }
+local _is_windows = vim.fn.has("win32") == 1
 
 --- Capture global context that is shared across all items in the session
 --- This is called once at the beginning of a file picking session
@@ -35,10 +36,11 @@ function M.capture_context(ctx)
   local current_file_trigrams = nil
   local current_file_virtual_name = ""
   local current_file_dir, current_file_depth = nil, 0
+  local config = require("neural-open").config
   if current_file ~= "" then
     local scorer = require("neural-open.scorer")
     local trigrams_mod = require("neural-open.trigrams")
-    local config = require("neural-open").config
+    scorer.set_recency_list_size(config.recency_list_size)
     current_file_virtual_name = scorer.get_virtual_name(current_file, config.special_files)
     current_file_trigrams = trigrams_mod.compute_trigrams(current_file_virtual_name)
     current_file_dir, current_file_depth = scorer.compute_dir_info(current_file)
@@ -92,9 +94,7 @@ function M.create_neural_transform(config, scorer, opts)
     local path = item.file
 
     -- Check if path is already absolute
-    local is_absolute = vim.startswith(path, "/")
-      or vim.startswith(path, "~")
-      or (vim.fn.has("win32") == 1 and path:match("^%a:"))
+    local is_absolute = vim.startswith(path, "/") or vim.startswith(path, "~") or (_is_windows and path:match("^%a:"))
 
     -- Only join with cwd if file is relative and cwd is provided
     if item.cwd and not is_absolute then

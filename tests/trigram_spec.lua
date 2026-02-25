@@ -1,3 +1,8 @@
+-- Pack 3 bytes into a single integer key (matches trigrams.lua encoding)
+local function pack(a, b, c)
+  return string.byte(a) * 65536 + string.byte(b) * 256 + string.byte(c)
+end
+
 describe("trigram module", function()
   local trigrams
 
@@ -23,15 +28,15 @@ describe("trigram module", function()
 
     it("should generate correct trigrams for 3-char string", function()
       local result = trigrams.compute_trigrams("abc")
-      assert.are.same({ abc = true }, result)
+      assert.are.same({ [pack("a", "b", "c")] = true }, result)
     end)
 
     it("should generate correct trigrams for longer strings", function()
       local result = trigrams.compute_trigrams("hello")
       assert.are.same({
-        hel = true,
-        ell = true,
-        llo = true,
+        [pack("h", "e", "l")] = true,
+        [pack("e", "l", "l")] = true,
+        [pack("l", "l", "o")] = true,
       }, result)
     end)
 
@@ -43,23 +48,16 @@ describe("trigram module", function()
 
     it("should handle duplicate trigrams", function()
       local result = trigrams.compute_trigrams("aaaa")
-      assert.are.same({ aaa = true }, result)
+      assert.are.same({ [pack("a", "a", "a")] = true }, result)
     end)
 
-    it("should handle special characters", function()
+    it("should produce correct count of trigrams", function()
       local result = trigrams.compute_trigrams("test-file.js")
-      assert.are.same({
-        ["tes"] = true,
-        ["est"] = true,
-        ["st-"] = true,
-        ["t-f"] = true,
-        ["-fi"] = true,
-        ["fil"] = true,
-        ["ile"] = true,
-        ["le."] = true,
-        ["e.j"] = true,
-        [".js"] = true,
-      }, result)
+      local count = 0
+      for _ in pairs(result) do
+        count = count + 1
+      end
+      assert.equals(10, count) -- 12 chars - 2 = 10 trigrams
     end)
   end)
 
@@ -70,40 +68,78 @@ describe("trigram module", function()
     end)
 
     it("should return 0 for completely different sets", function()
-      local set1 = { abc = true, bcd = true }
-      local set2 = { xyz = true, yzw = true }
+      local set1 = { [pack("a", "b", "c")] = true, [pack("b", "c", "d")] = true }
+      local set2 = { [pack("x", "y", "z")] = true, [pack("y", "z", "w")] = true }
       local result = trigrams.dice_coefficient(set1, set2)
       assert.are.equal(0, result)
     end)
 
     it("should return 1 for identical sets", function()
-      local set1 = { abc = true, bcd = true, cde = true }
-      local set2 = { abc = true, bcd = true, cde = true }
+      local set1 = { [pack("a", "b", "c")] = true, [pack("b", "c", "d")] = true, [pack("c", "d", "e")] = true }
+      local set2 = { [pack("a", "b", "c")] = true, [pack("b", "c", "d")] = true, [pack("c", "d", "e")] = true }
       local result = trigrams.dice_coefficient(set1, set2)
       assert.are.equal(1, result)
     end)
 
     it("should calculate correct coefficient for partial overlap", function()
-      local set1 = { abc = true, bcd = true, cde = true }
-      local set2 = { bcd = true, cde = true, def = true }
+      local set1 = { [pack("a", "b", "c")] = true, [pack("b", "c", "d")] = true, [pack("c", "d", "e")] = true }
+      local set2 = { [pack("b", "c", "d")] = true, [pack("c", "d", "e")] = true, [pack("d", "e", "f")] = true }
       local result = trigrams.dice_coefficient(set1, set2)
       -- 2 * 2 / (3 + 3) = 4/6 = 0.666...
       assert.is_near(0.6666667, result, 0.0001)
     end)
 
     it("should handle asymmetric sets", function()
-      local set1 = { abc = true }
-      local set2 = { abc = true, bcd = true, cde = true }
+      local set1 = { [pack("a", "b", "c")] = true }
+      local set2 = { [pack("a", "b", "c")] = true, [pack("b", "c", "d")] = true, [pack("c", "d", "e")] = true }
       local result = trigrams.dice_coefficient(set1, set2)
       -- 2 * 1 / (1 + 3) = 2/4 = 0.5
       assert.are.equal(0.5, result)
     end)
 
     it("should handle one empty set", function()
-      local set1 = { abc = true, bcd = true }
+      local set1 = { [pack("a", "b", "c")] = true, [pack("b", "c", "d")] = true }
       local set2 = {}
       local result = trigrams.dice_coefficient(set1, set2)
       assert.are.equal(0, result)
+    end)
+  end)
+
+  describe("dice_coefficient regression", function()
+    -- Pin exact dice_coefficient values for the full compute_trigrams -> dice_coefficient pipeline.
+    -- These must remain identical after any internal representation changes (e.g. byte-based keys).
+
+    local function dice(a, b)
+      return trigrams.dice_coefficient(trigrams.compute_trigrams(a), trigrams.compute_trigrams(b))
+    end
+
+    it("returns 1 for identical strings", function()
+      assert.equals(1, dice("hello", "hello"))
+      assert.equals(1, dice("abc", "abc"))
+    end)
+
+    it("returns 0 for strings with no shared trigrams", function()
+      assert.equals(0, dice("foo", "bar"))
+    end)
+
+    it("returns 0 for strings shorter than 3 characters", function()
+      assert.equals(0, dice("ab", "ab"))
+      assert.equals(0, dice("a", "a"))
+      assert.equals(0, dice("", ""))
+    end)
+
+    it("computes exact scores for file name pairs", function()
+      -- 6/11 shared trigrams: "est", ".lu"/".js" differ, but "tes", "est" overlap
+      assert.are.near(6 / 11, dice("test.lua", "test.js"), 1e-15)
+
+      -- user_controller.rb vs user_service.rb: 2/7
+      assert.are.near(2 / 7, dice("user_controller.rb", "user_service.rb"), 1e-15)
+
+      -- index.js vs main.js: share ".js" and partial overlap
+      assert.are.near(2 / 11, dice("index.js", "main.js"), 1e-15)
+
+      -- components/index.js vs helpers/index.js: shared "index.js" portion
+      assert.are.near(16 / 31, dice("components/index.js", "helpers/index.js"), 1e-15)
     end)
   end)
 

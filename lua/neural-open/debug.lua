@@ -91,11 +91,11 @@ function M.debug_preview(ctx)
         local trigrams_module = require("neural-open.trigrams")
         local target_trigrams = trigrams_module.compute_trigrams(virtual_name)
 
-        -- Find common trigrams
+        -- Find common trigrams and decode packed integer keys for display
         local common_trigrams = {}
         for trigram in pairs(target_trigrams) do
           if current_trigrams[trigram] then
-            table.insert(common_trigrams, trigram)
+            table.insert(common_trigrams, trigrams_module.unpack_trigram(trigram))
           end
         end
         table.sort(common_trigrams)
