@@ -11,7 +11,7 @@ Use the @justfile commands.
 
 Always make sure all `just precommit` checks pass before checking in code.
 
-When making changes to the scoring hot path (`scorer.lua`, `nn.lua` inference), run
+When making changes to the scoring hot path (`scorer.lua`, `nn.lua` inference, `source.lua` transform), run
 `just benchmark` before and after to measure per-keystroke latency impact.
 Results are documented in `docs/benchmark-results.md`.
 
@@ -42,9 +42,10 @@ The plugin uses a dedicated `nos` field on picker items to encapsulate all neura
 - **is_open_buffer**, **is_alternate**: Buffer state flags
 - **recent_rank**: Position in persistent recency list (1-based)
 - **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
+- **nn_input**: Pre-allocated flat array of 10 normalized features for NN fast-path scoring (nil for classic/naive). Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke.
 - **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, recent_files, alternate_buf)
 
-This structure provides clean separation between plugin-specific data and native Snacks picker fields. The scoring pipeline follows: raw_features → normalized_features → (apply weights) → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Component scores are calculated on-the-fly from normalized features and weights when needed using `weights.calculate_components()`.
+This structure provides clean separation between plugin-specific data and native Snacks picker fields. The scoring pipeline differs by algorithm. Classic/Naive: raw_features → normalized_features → (apply weights) → neural_score. NN: raw_features → nn_input (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → calculate_score_direct() → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Component scores for the Classic algorithm are calculated on-the-fly from normalized features using a local function inside classic.lua.
 
 ### Scoring System
 
@@ -103,7 +104,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Linearly increases learning rate from 10% to 100% over first N steps
   - Enabled by default for AdamW (100 steps)
   - Helps mitigate bias correction amplification in AdamW
-- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score()` runs a tight loop with zero table allocations. The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
+- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so both `calculate_score()` and `calculate_score_direct()` run a tight loop with zero table allocations. `calculate_score_direct()` is the per-keystroke hot path for the NN algorithm, taking a pre-allocated flat array (`nn_input`) instead of a named-feature table. The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
 - **Migration**: Automatically migrates from older BCE-based format (v1.0) to pairwise hinge loss format (v2.0)
   - Preserves network weights while resetting optimizer state and training history
   - Users are notified of the upgrade

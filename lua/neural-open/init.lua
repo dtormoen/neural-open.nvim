@@ -183,12 +183,7 @@ local function get_neural_source_config()
         return require("snacks.picker.preview").file(ctx)
       end
     end,
-    transform = function(item, ctx)
-      local config = M.config
-      local scorer = require("neural-open.scorer")
-      local source_mod = require("neural-open.source")
-      return source_mod.create_neural_transform(config, scorer, {})(item, ctx)
-    end,
+    transform = require("neural-open.source").create_neural_transform(M.config, require("neural-open.scorer"), {}),
     matcher = {
       sort_empty = true,
       frecency = true,

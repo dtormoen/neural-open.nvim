@@ -27,7 +27,6 @@ local SEED = 42
 
 local scorer = require("neural-open.scorer")
 local trigrams = require("neural-open.trigrams")
-
 -- Mock the weights module before requiring nn so load_weights() uses bundled defaults
 package.loaded["neural-open.weights"] = {
   get_weights = function()
@@ -259,6 +258,24 @@ local function create_items(paths, context)
     raw_features.virtual_name = math.random(0, 200)
     raw_features.frecency = math.random() * 50
 
+    -- Pre-allocate nn_input buffer (mirrors source.lua transform for NN fast path)
+    local recency_val = 0
+    if item_data.recent_rank and item_data.recent_rank > 0 then
+      recency_val = scorer.calculate_recency_score(item_data.recent_rank)
+    end
+    local nn_input = {
+      0, -- [1] match (dynamic)
+      0, -- [2] virtual_name (dynamic)
+      0, -- [3] frecency (dynamic)
+      is_open and 1 or 0, -- [4] open
+      is_alt and 1 or 0, -- [5] alt
+      raw_features.proximity, -- [6] proximity (already [0,1])
+      raw_features.project, -- [7] project (already 0/1)
+      recency_val, -- [8] recency (normalized)
+      raw_features.trigram, -- [9] trigram (already [0,1])
+      raw_features.transition, -- [10] transition (already [0,1])
+    }
+
     items[i] = {
       file = path,
       text = path,
@@ -271,6 +288,7 @@ local function create_items(paths, context)
         is_alternate = is_alt,
         recent_rank = item_data.recent_rank,
         virtual_name = virtual_name,
+        nn_input = nn_input,
         ctx = context,
       },
     }
@@ -366,11 +384,23 @@ for _, size in ipairs(REPO_SIZES) do
     end
   end)
 
-  -- 2. Per-keystroke: normalize + nn inference
+  -- 2. Per-keystroke: normalize + nn inference (standard path)
   local keystroke_median = benchmark(function()
     for _, item in ipairs(items) do
       local normalized = scorer.normalize_features(item.nos.raw_features)
       nn.calculate_score(normalized)
+    end
+  end)
+
+  -- 2b. Per-keystroke fast path (nn_input direct, zero table allocation)
+  local keystroke_fast_median = benchmark(function()
+    for _, item in ipairs(items) do
+      local rf = item.nos.raw_features
+      local nn_input = item.nos.nn_input
+      nn_input[1] = scorer.normalize_match_score(rf.match)
+      nn_input[2] = scorer.normalize_match_score(rf.virtual_name)
+      nn_input[3] = scorer.normalize_frecency(rf.frecency)
+      nn.calculate_score_direct(nn_input)
     end
   end)
 
@@ -393,12 +423,39 @@ for _, size in ipairs(REPO_SIZES) do
     end
   end)
 
+  -- 5. Transform phase: full per-item processing during discovery
+  local transform_median = benchmark(function()
+    local done = {}
+    for _, item in ipairs(items) do
+      local path = item.nos.normalized_path
+      if not done[path] then
+        done[path] = true
+        scorer.get_virtual_name(path, config.special_files)
+        local item_data = {
+          is_open_buffer = item.nos.is_open_buffer,
+          is_alternate = item.nos.is_alternate,
+          recent_rank = item.nos.recent_rank,
+          virtual_name = item.nos.virtual_name,
+        }
+        scorer.compute_static_raw_features(path, context, item_data)
+      end
+    end
+  end)
+
+  -- 6. Weight loading: load_weights triggers ensure_weights(true) + prepare_inference_cache
+  local load_median = benchmark(function()
+    nn.load_weights()
+  end)
+
   -- Print results
   local formatted_size = tostring(size):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
   print("")
   print(string.format("--- %s files ---", formatted_size))
   print(string.format("Static features:    %s", format_timing(static_median, size)))
   print(string.format("Per-keystroke:      %s", format_timing(keystroke_median, size)))
+  print(string.format("Per-keystroke fast: %s", format_timing(keystroke_fast_median, size)))
   print(string.format("  normalize:        %s", format_timing(normalize_median, size)))
   print(string.format("  nn_inference:     %s", format_timing(nn_median, size)))
+  print(string.format("Transform phase:    %s", format_timing(transform_median, size)))
+  print(string.format("Weight loading:     %8.2fms total (one-time)", load_median / 1e6))
 end

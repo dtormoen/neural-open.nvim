@@ -7,6 +7,7 @@
 --- All scoring algorithms should implement these methods.
 ---@class Algorithm
 ---@field calculate_score fun(normalized_features: table<string, number>): number Calculates the total score from normalized features using the algorithm's approach
+---@field calculate_score_direct? fun(input_buf: number[]): number Fast-path scoring using a pre-filled flat input buffer (NN only, avoids table allocation)
 ---@field update_weights fun(selected_item: NeuralOpenItem, ranked_items: NeuralOpenItem[], latency_ctx?: table): nil Updates internal weights based on user selection for learning algorithms. Called when user selects an item that wasn't ranked #1. Optional latency_ctx for performance tracking
 ---@field debug_view fun(item: NeuralOpenItem, all_items?: NeuralOpenItem[]): string[] Generates debug information specific to this algorithm
 ---@field get_name fun(): AlgorithmName Returns the display name of the algorithm
@@ -57,6 +58,7 @@
 ---@field is_open_buffer boolean File is open in a buffer
 ---@field is_alternate boolean File is the alternate buffer
 ---@field recent_rank number? Position in recent files (1-based)
+---@field nn_input? number[] Pre-allocated flat array of 10 normalized features for NN fast path
 ---@field ctx NosContext Reference to shared session context
 
 ---@class NeuralOpenItem: snacks.picker.Item

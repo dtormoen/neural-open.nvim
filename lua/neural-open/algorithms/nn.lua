@@ -662,17 +662,19 @@ local function average_gradients(gradients, batch_size)
   end
 end
 
+--- Canonical feature names in input order
+local FEATURE_NAMES =
+  { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+
 --- Convert features to input vector with optional match dropout
 ---@param normalized_features table<string, number>
 ---@param drop_match_features? boolean Whether to zero out match/virtual_name features (for training)
 ---@return table Input vector
 local function features_to_input(normalized_features, drop_match_features)
-  -- Order must match training expectations
-  local feature_order =
-    { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+  -- Uses module-level FEATURE_NAMES for canonical feature ordering
   local input = {}
 
-  for _, name in ipairs(feature_order) do
+  for _, name in ipairs(FEATURE_NAMES) do
     local value = normalized_features[name] or 0
 
     -- Apply match dropout during training (controlled by caller)
@@ -684,6 +686,34 @@ local function features_to_input(normalized_features, drop_match_features)
   end
 
   return nn_core.vector_to_matrix(input)
+end
+
+--- Convert pre-computed nn_input flat array to matrix format with optional match dropout
+---@param nn_input number[] Flat array of 10 normalized features in canonical order
+---@param drop_match_features? boolean Whether to zero out match/virtual_name features
+---@return table Input matrix
+local function features_to_input_from_array(nn_input, drop_match_features)
+  -- Copy is required: nn_input is a shared mutable buffer; dropout would corrupt it
+  local input = {}
+  for i = 1, #nn_input do
+    input[i] = nn_input[i]
+  end
+  if drop_match_features then
+    input[1] = 0 -- match
+    input[2] = 0 -- virtual_name
+  end
+  return { input } -- nn_core matrix format: { {v1, v2, ...} }
+end
+
+--- Convert nn_input flat array to named features table (for debug/display only)
+---@param nn_input number[] Flat array of 10 normalized features in canonical order
+---@return table<string, number>
+local function nn_input_to_features(nn_input)
+  local features = {}
+  for i, name in ipairs(FEATURE_NAMES) do
+    features[name] = nn_input[i]
+  end
+  return features
 end
 
 --- Construct multiple batches from pairs and history as pair batches
@@ -1353,6 +1383,67 @@ function M.calculate_score(normalized_features)
   return current[1] * 100
 end
 
+--- Fast-path scoring using a pre-filled flat input buffer (avoids all table allocation).
+--- The input_buf is used directly as the first layer's input (read-only, not modified).
+---@param input_buf number[] Flat array of 10 normalized features in canonical order
+---@return number Score in [0, 100]
+function M.calculate_score_direct(input_buf)
+  ensure_weights()
+
+  if not state.inference_cache then
+    -- Fallback: reconstruct named features and use standard path
+    return M.calculate_score({
+      match = input_buf[1],
+      virtual_name = input_buf[2],
+      frecency = input_buf[3],
+      open = input_buf[4],
+      alt = input_buf[5],
+      proximity = input_buf[6],
+      project = input_buf[7],
+      recency = input_buf[8],
+      trigram = input_buf[9],
+      transition = input_buf[10],
+    })
+  end
+
+  local cache = state.inference_cache --[[@as table]]
+  local num_layers = cache.num_layers
+  local current = input_buf -- Use directly as first-layer input (read-only)
+
+  for layer = 1, num_layers do
+    local wt = cache.weights_t[layer]
+    local b = cache.biases[layer]
+    local buf = cache.buffers[layer]
+    local out_size = #b
+
+    for j = 1, out_size do
+      local wt_j = wt[j]
+      local sum = b[j]
+      for k = 1, #current do
+        sum = sum + current[k] * wt_j[k]
+      end
+
+      if layer < num_layers then
+        -- Leaky ReLU inline (alpha=0.01)
+        buf[j] = sum > 0 and sum or 0.01 * sum
+      else
+        -- Sigmoid inline for output layer
+        if sum < -500 then
+          buf[j] = 0
+        elseif sum > 500 then
+          buf[j] = 1
+        else
+          buf[j] = 1 / (1 + math_exp(-sum))
+        end
+      end
+    end
+
+    current = buf
+  end
+
+  return current[1] * 100
+end
+
 --- Update neural network weights based on user selection (with optional latency tracking)
 ---@param selected_item NeuralOpenItem
 ---@param ranked_items NeuralOpenItem[]
@@ -1378,13 +1469,14 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
     -- Get match_dropout configuration
     local match_dropout_rate = config.match_dropout or 0.25
 
-    -- Check if selected item has features
-    if not (selected_item.nos and selected_item.nos.normalized_features) then
+    -- Check if selected item has features (prefer nn_input, fall back to normalized_features)
+    if not (selected_item.nos and (selected_item.nos.nn_input or selected_item.nos.normalized_features)) then
       return pairs_result -- Cannot train without features
     end
 
-    -- Prepare positive features
-    local positive_features = selected_item.nos.normalized_features
+    -- Use nn_input fast path when available
+    local use_nn_input = selected_item.nos.nn_input ~= nil
+    local positive_features = use_nn_input and selected_item.nos.nn_input or selected_item.nos.normalized_features
 
     -- Collect top-10 items as hard negatives, excluding the selected item
     local candidate_pool = {}
@@ -1400,13 +1492,15 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
     end
 
     -- Create pairs: selected vs. all hard negatives
+    local to_input = use_nn_input and features_to_input_from_array or features_to_input
     for _, neg_item in ipairs(candidate_pool) do
-      if neg_item.nos and neg_item.nos.normalized_features then
+      local neg_features = neg_item.nos and (use_nn_input and neg_item.nos.nn_input or neg_item.nos.normalized_features)
+      if neg_features then
         -- Decide once per pair whether to drop match features (applies to both positive and negative)
         local drop_match = math.random() < match_dropout_rate
         table.insert(pairs_result, {
-          positive_input = features_to_input(positive_features, drop_match),
-          negative_input = features_to_input(neg_item.nos.normalized_features, drop_match),
+          positive_input = to_input(positive_features, drop_match),
+          negative_input = to_input(neg_features, drop_match),
           positive_file = selected_item.file,
           negative_file = neg_item.file,
         })
@@ -1844,12 +1938,20 @@ function M.debug_view(item, all_items)
     table.insert(lines, "")
   end
 
-  -- Current item features
-  if item.nos and item.nos.normalized_features then
+  -- Current item features (prefer nn_input, fall back to normalized_features)
+  local normalized_features = nil
+  if item.nos then
+    if item.nos.nn_input then
+      normalized_features = nn_input_to_features(item.nos.nn_input)
+    elseif item.nos.normalized_features and next(item.nos.normalized_features) then
+      normalized_features = item.nos.normalized_features
+    end
+  end
+  if normalized_features then
     table.insert(lines, "Input Features (normalized):")
 
     local sorted_features = {}
-    for name, value in pairs(item.nos.normalized_features) do
+    for name, value in pairs(normalized_features) do
       table.insert(sorted_features, { name = name, value = value })
     end
     table.sort(sorted_features, function(a, b)
@@ -1864,12 +1966,13 @@ function M.debug_view(item, all_items)
   end
 
   -- Network prediction
-  if item.nos and item.nos.normalized_features and state.weights then
+  if normalized_features and state.weights then
     table.insert(lines, "")
     table.insert(lines, "Network Prediction:")
 
     -- No match dropout during inference/debug
-    local input = features_to_input(item.nos.normalized_features, false)
+    local input = item.nos.nn_input and features_to_input_from_array(item.nos.nn_input, false)
+      or features_to_input(normalized_features, false)
 
     -- Get logit output for debug info
     local activations_logit = forward_pass(

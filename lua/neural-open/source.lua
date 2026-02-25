@@ -1,5 +1,14 @@
 local M = {}
 
+-- Cached at module load: check once if vim.fs.normalize is available
+local _has_fs_normalize = (function()
+  local ok, result = pcall(function()
+    return vim.fs ~= nil and vim.fs.normalize ~= nil
+  end)
+  return ok and result
+end)()
+local _normalize_opts = { expand_env = false }
+
 --- Capture global context that is shared across all items in the session
 --- This is called once at the beginning of a file picking session
 ---@param ctx table The Snacks picker context
@@ -92,16 +101,10 @@ function M.create_neural_transform(config, scorer, opts)
       path = item.cwd .. "/" .. path
     end
 
-    -- Normalize the path
+    -- Normalize the path (availability check and opts table cached at module load)
     local normalized_path
-    -- Use pcall to safely check for vim.fs.normalize
-    local has_normalize = false
-    local ok = pcall(function()
-      has_normalize = vim.fs ~= nil and vim.fs.normalize ~= nil
-    end)
-
-    if ok and has_normalize then
-      normalized_path = vim.fs.normalize(path, { expand_env = false })
+    if _has_fs_normalize then
+      normalized_path = vim.fs.normalize(path, _normalize_opts)
     else
       normalized_path = vim.fn.fnamemodify(path, ":p")
     end
@@ -137,6 +140,36 @@ function M.create_neural_transform(config, scorer, opts)
     -- Compute virtual name for special files
     local virtual_name = scorer.get_virtual_name(normalized_path, config.special_files)
 
+    -- Compute static raw features once during transform
+    local raw_features = scorer.compute_static_raw_features(normalized_path, nos_ctx, {
+      is_open_buffer = is_open_buffer,
+      is_alternate = is_alternate,
+      recent_rank = recent_rank,
+      virtual_name = virtual_name,
+    })
+
+    -- Pre-allocate nn_input buffer with normalized static features for NN fast path.
+    -- Dynamic features (match, virtual_name, frecency) are filled per-keystroke in on_match_handler.
+    local nn_input = nil
+    if nos_ctx.algorithm and nos_ctx.algorithm.get_name and nos_ctx.algorithm.get_name() == "nn" then
+      local recency_val = 0
+      if recent_rank and recent_rank > 0 then
+        recency_val = scorer.calculate_recency_score(recent_rank)
+      end
+      nn_input = {
+        0, -- [1] match (dynamic)
+        0, -- [2] virtual_name (dynamic)
+        0, -- [3] frecency (dynamic)
+        is_open_buffer and 1 or 0, -- [4] open
+        is_alternate and 1 or 0, -- [5] alt
+        raw_features.proximity, -- [6] proximity (already [0,1])
+        raw_features.project, -- [7] project (already 0/1)
+        recency_val, -- [8] recency (normalized)
+        raw_features.trigram, -- [9] trigram (already [0,1])
+        raw_features.transition, -- [10] transition (already [0,1])
+      }
+    end
+
     -- Initialize the nos field structure with all per-item data
     item.nos = {
       -- Path data
@@ -150,16 +183,14 @@ function M.create_neural_transform(config, scorer, opts)
       -- Recent file data
       recent_rank = recent_rank,
 
+      -- NN fast-path input buffer
+      nn_input = nn_input,
+
       -- Reference to shared context
       ctx = nos_ctx,
 
       -- Initialize feature structures (will be populated later)
-      raw_features = scorer.compute_static_raw_features(normalized_path, nos_ctx, {
-        is_open_buffer = is_open_buffer,
-        is_alternate = is_alternate,
-        recent_rank = recent_rank,
-        virtual_name = virtual_name,
-      }),
+      raw_features = raw_features,
       normalized_features = {},
       neural_score = 0,
     }

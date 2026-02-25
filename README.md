@@ -254,7 +254,7 @@ Tests run in complete isolation using temporary XDG directories to protect your 
 ### Benchmarking
 
 ```bash
-# Run picker hot-path benchmark (normalize + NN inference across 1K/10K/100K files)
+# Run scorer hot-path benchmark (static features, per-keystroke scoring, transform phase across 1K/10K/100K files)
 just benchmark
 ```
 
