@@ -11,6 +11,10 @@ Use the @justfile commands.
 
 Always make sure all `just precommit` checks pass before checking in code.
 
+When making changes to the scoring hot path (`scorer.lua`, `nn.lua` inference), run
+`just benchmark` before and after to measure per-keystroke latency impact.
+Results are documented in `docs/benchmark-results.md`.
+
 ## Architecture
 
 ### Core Components
@@ -272,6 +276,8 @@ assert.is_not_nil(saved)
 - `plugin/neural-open.lua`: Commands, `<Plug>` mappings, and autocmds (native lazy loading)
 - `lua/neural-open/`: Core plugin modules
 - `tests/`: Busted test specifications
+- `benchmarks/`: Hot-path benchmark scripts (run with `just benchmark`)
+- `docs/`: Benchmark results and supplementary documentation
 
 ## Configuration
 

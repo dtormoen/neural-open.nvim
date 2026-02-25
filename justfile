@@ -11,11 +11,11 @@ test-verbose:
 
 # Format code with stylua
 format:
-    stylua lua/ tests/
+    stylua lua/ tests/ benchmarks/
 
 # Lint code with luacheck
 lint:
-    luacheck lua/ tests/
+    luacheck lua/ tests/ benchmarks/
 
 # Type check with lua-language-server
 typecheck:
@@ -37,6 +37,10 @@ clean:
     rm -rf .luarocks
     rm -f .luarc.log
     find . -name "*.rock" -delete
+
+# Run picker hot-path benchmark
+benchmark:
+    ./scripts/test-isolated.sh nlua benchmarks/picker_benchmark.lua
 
 # Update bundled default NN weights from a trained weights.json
 update-default-weights path="./weights.json":

@@ -251,6 +251,15 @@ just test
 
 Tests run in complete isolation using temporary XDG directories to protect your real configuration.
 
+### Benchmarking
+
+```bash
+# Run picker hot-path benchmark (normalize + NN inference across 1K/10K/100K files)
+just benchmark
+```
+
+Results are documented in [`docs/benchmark-results.md`](docs/benchmark-results.md).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.

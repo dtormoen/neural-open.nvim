@@ -1,0 +1,399 @@
+--- Picker hot-path benchmark for neural-open.nvim
+--- Measures per-keystroke scoring latency across realistic repository sizes.
+---
+--- Run via: just benchmark
+--- Requires nlua (Neovim Lua interpreter) with test isolation.
+
+-- Setup package paths for project modules
+package.path = "lua/?.lua;lua/?/init.lua;./?/init.lua;" .. package.path
+
+-- Verify test isolation
+local helpers = require("tests.helpers")
+helpers.setup()
+
+--------------------------------------------------------------------------------
+-- Configuration
+--------------------------------------------------------------------------------
+
+local WARMUP_ITERATIONS = 5
+local MEASURED_ITERATIONS = 50
+local REPO_SIZES = { 1000, 10000, 100000 }
+
+local SEED = 42
+
+--------------------------------------------------------------------------------
+-- Module imports
+--------------------------------------------------------------------------------
+
+local scorer = require("neural-open.scorer")
+local trigrams = require("neural-open.trigrams")
+
+-- Mock the weights module before requiring nn so load_weights() uses bundled defaults
+package.loaded["neural-open.weights"] = {
+  get_weights = function()
+    return {}
+  end,
+  save_weights = function() end,
+}
+
+local nn = require("neural-open.algorithms.nn")
+
+-- Initialize nn with default config
+local config = helpers.get_default_config()
+local nn_config = config.algorithm_config.nn
+nn.init(nn_config)
+nn.load_weights()
+
+--------------------------------------------------------------------------------
+-- Synthetic data generation
+--------------------------------------------------------------------------------
+
+local DIRECTORIES = {
+  "src",
+  "src/components",
+  "src/components/ui",
+  "src/components/forms",
+  "src/utils",
+  "src/hooks",
+  "src/pages",
+  "src/pages/auth",
+  "src/pages/dashboard",
+  "src/layouts",
+  "src/styles",
+  "src/types",
+  "lib",
+  "lib/core",
+  "lib/adapters",
+  "tests",
+  "tests/unit",
+  "tests/integration",
+  "tests/fixtures",
+  "docs",
+  "config",
+  "scripts",
+  "api",
+  "api/routes",
+  "api/middleware",
+  "api/controllers",
+  "models",
+  "models/schemas",
+  "views",
+  "views/partials",
+  "services",
+  "services/auth",
+  "services/cache",
+  "helpers",
+}
+
+local EXTENSIONS = {
+  ".lua",
+  ".js",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".go",
+  ".rs",
+  ".md",
+  ".json",
+  ".yaml",
+  ".css",
+  ".html",
+}
+
+local BASE_NAMES = {
+  "app",
+  "main",
+  "config",
+  "utils",
+  "helpers",
+  "types",
+  "constants",
+  "router",
+  "store",
+  "context",
+  "provider",
+  "handler",
+  "middleware",
+  "service",
+  "controller",
+  "model",
+  "schema",
+  "validator",
+  "factory",
+  "adapter",
+  "client",
+  "server",
+  "logger",
+  "parser",
+  "formatter",
+  "renderer",
+  "loader",
+  "builder",
+  "manager",
+  "registry",
+  "dispatcher",
+  "emitter",
+  "listener",
+  "observer",
+  "subscriber",
+  "publisher",
+  "worker",
+  "queue",
+  "cache",
+  "pool",
+  "buffer",
+  "stream",
+  "transform",
+  "pipeline",
+  "filter",
+  "mapper",
+  "reducer",
+  "selector",
+  "resolver",
+  "connector",
+}
+
+--- Generate deterministic file paths resembling a real project.
+---@param count number Number of paths to generate
+---@return string[]
+local function generate_file_paths(count)
+  math.randomseed(SEED)
+  local paths = {}
+  local used = {}
+
+  -- Sprinkle in special files (index.js, init.lua) for virtual name testing
+  local special_files = { "index.js", "index.ts", "index.tsx", "init.lua", "mod.rs" }
+
+  for i = 1, count do
+    local path
+    repeat
+      local dir = DIRECTORIES[math.random(#DIRECTORIES)]
+      local name
+      if i <= #DIRECTORIES * #special_files and math.random() < 0.08 then
+        name = special_files[math.random(#special_files)]
+      else
+        local base = BASE_NAMES[math.random(#BASE_NAMES)]
+        local ext = EXTENSIONS[math.random(#EXTENSIONS)]
+        -- Add numeric suffix for uniqueness at large scales
+        if count > #DIRECTORIES * #BASE_NAMES then
+          base = base .. math.random(1, math.ceil(count / (#DIRECTORIES * #BASE_NAMES)))
+        end
+        name = base .. ext
+      end
+      path = "/project/" .. dir .. "/" .. name
+    until not used[path]
+    used[path] = true
+    paths[i] = path
+  end
+
+  return paths
+end
+
+--- Build a session context with realistic recency, transition, and trigram data.
+---@param paths string[]
+---@return NosContext
+local function create_context(paths)
+  math.randomseed(SEED + 1)
+
+  local current_file = "/project/src/components/App.tsx"
+  local current_file_vname = scorer.get_virtual_name(current_file, config.special_files)
+  local current_file_tris = trigrams.compute_trigrams(current_file_vname)
+
+  -- Build recency map from first 100 paths
+  local recent_files = {}
+  local recency_count = math.min(100, #paths)
+  for i = 1, recency_count do
+    recent_files[paths[i]] = { recent_rank = i }
+  end
+
+  -- Build transition scores for first 50 paths
+  local transition_scores = {}
+  local transition_count = math.min(50, #paths)
+  for i = 1, transition_count do
+    transition_scores[paths[i]] = math.random() * 0.9
+  end
+
+  return {
+    cwd = "/project",
+    current_file = current_file,
+    current_file_trigrams = current_file_tris,
+    recent_files = recent_files,
+    alternate_buf = paths[1],
+    algorithm = nn,
+    transition_scores = transition_scores,
+  }
+end
+
+--- Build items with pre-computed static features, simulating the transform phase.
+---@param paths string[]
+---@param context NosContext
+---@return NeuralOpenItem[]
+local function create_items(paths, context)
+  math.randomseed(SEED + 2)
+
+  local items = {}
+  local open_count = math.min(10, #paths)
+
+  for i, path in ipairs(paths) do
+    local is_open = i <= open_count
+    local is_alt = (path == context.alternate_buf)
+    local recent_entry = context.recent_files[path]
+    local virtual_name = scorer.get_virtual_name(path, config.special_files)
+
+    local item_data = {
+      is_open_buffer = is_open,
+      is_alternate = is_alt,
+      recent_rank = recent_entry and recent_entry.recent_rank or nil,
+      virtual_name = virtual_name,
+    }
+
+    local raw_features = scorer.compute_static_raw_features(path, context, item_data)
+
+    -- Set plausible dynamic feature values (normally set per-keystroke by matcher)
+    raw_features.match = math.random(0, 300)
+    raw_features.virtual_name = math.random(0, 200)
+    raw_features.frecency = math.random() * 50
+
+    items[i] = {
+      file = path,
+      text = path,
+      nos = {
+        raw_features = raw_features,
+        normalized_features = {},
+        neural_score = 0,
+        normalized_path = path,
+        is_open_buffer = is_open,
+        is_alternate = is_alt,
+        recent_rank = item_data.recent_rank,
+        virtual_name = virtual_name,
+        ctx = context,
+      },
+    }
+  end
+
+  return items
+end
+
+--------------------------------------------------------------------------------
+-- Timing utilities
+--------------------------------------------------------------------------------
+
+local hrtime = vim.uv.hrtime
+
+--- Run a function for warmup + measured iterations and return the median elapsed time in nanoseconds.
+---@param fn fun() The function to benchmark
+---@return number median_ns
+---@return number mean_ns
+local function benchmark(fn)
+  -- Warmup
+  for _ = 1, WARMUP_ITERATIONS do
+    fn()
+  end
+
+  -- Collect measurements
+  local times = {}
+  for i = 1, MEASURED_ITERATIONS do
+    local start = hrtime()
+    fn()
+    times[i] = hrtime() - start
+  end
+
+  -- Sort for median
+  table.sort(times)
+  local mid = math.floor(MEASURED_ITERATIONS / 2)
+  local median
+  if MEASURED_ITERATIONS % 2 == 0 then
+    median = (times[mid] + times[mid + 1]) / 2
+  else
+    median = times[mid + 1]
+  end
+
+  -- Mean
+  local sum = 0
+  for _, t in ipairs(times) do
+    sum = sum + t
+  end
+  local mean = sum / MEASURED_ITERATIONS
+
+  return median, mean
+end
+
+--------------------------------------------------------------------------------
+-- Formatting
+--------------------------------------------------------------------------------
+
+--- Format nanoseconds as a human-readable string with total and per-item cost.
+---@param ns number Total nanoseconds
+---@param item_count number Number of items processed
+---@return string
+local function format_timing(ns, item_count)
+  local total_ms = ns / 1e6
+  local per_item_us = ns / 1e3 / item_count
+  return string.format("%8.2fms total | %6.3fus/item", total_ms, per_item_us)
+end
+
+--------------------------------------------------------------------------------
+-- Benchmark runner
+--------------------------------------------------------------------------------
+
+local arch = table.concat(nn_config.architecture, " -> ")
+print("=== Neural-Open Picker Benchmark ===")
+print(string.format("Algorithm: nn (%s)", arch))
+print(string.format("Date: %s", os.date("%Y-%m-%d")))
+print(string.format("Iterations: %d", MEASURED_ITERATIONS))
+
+for _, size in ipairs(REPO_SIZES) do
+  -- Generate data for this repo size
+  local paths = generate_file_paths(size)
+  local context = create_context(paths)
+  local items = create_items(paths, context)
+
+  -- 1. Static feature computation (one-time per item)
+  local static_median = benchmark(function()
+    for _, item in ipairs(items) do
+      local item_data = {
+        is_open_buffer = item.nos.is_open_buffer,
+        is_alternate = item.nos.is_alternate,
+        recent_rank = item.nos.recent_rank,
+        virtual_name = item.nos.virtual_name,
+      }
+      scorer.compute_static_raw_features(item.nos.normalized_path, context, item_data)
+    end
+  end)
+
+  -- 2. Per-keystroke: normalize + nn inference
+  local keystroke_median = benchmark(function()
+    for _, item in ipairs(items) do
+      local normalized = scorer.normalize_features(item.nos.raw_features)
+      nn.calculate_score(normalized)
+    end
+  end)
+
+  -- 3. Normalize alone
+  local normalize_median = benchmark(function()
+    for _, item in ipairs(items) do
+      scorer.normalize_features(item.nos.raw_features)
+    end
+  end)
+
+  -- 4. NN inference alone (pre-normalize once, then measure inference)
+  local pre_normalized = {}
+  for i, item in ipairs(items) do
+    pre_normalized[i] = scorer.normalize_features(item.nos.raw_features)
+  end
+
+  local nn_median = benchmark(function()
+    for _, nf in ipairs(pre_normalized) do
+      nn.calculate_score(nf)
+    end
+  end)
+
+  -- Print results
+  local formatted_size = tostring(size):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+  print("")
+  print(string.format("--- %s files ---", formatted_size))
+  print(string.format("Static features:    %s", format_timing(static_median, size)))
+  print(string.format("Per-keystroke:      %s", format_timing(keystroke_median, size)))
+  print(string.format("  normalize:        %s", format_timing(normalize_median, size)))
+  print(string.format("  nn_inference:     %s", format_timing(nn_median, size)))
+end
