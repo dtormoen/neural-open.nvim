@@ -42,6 +42,8 @@
 ---@field alternate_buf string? Path to alternate buffer file
 ---@field cwd string Current working directory
 ---@field current_file string Current file path
+---@field current_file_dir string? Directory portion of current_file (up to and including last /)
+---@field current_file_depth number Number of /-separated segments in current_file_dir (excluding leading /)
 ---@field current_file_trigrams table<string, boolean>? Trigrams of current file
 ---@field algorithm Algorithm The scoring algorithm instance for this session
 ---@field transition_scores table<string, number>? Precomputed transition scores map

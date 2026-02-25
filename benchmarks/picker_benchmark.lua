@@ -213,9 +213,14 @@ local function create_context(paths)
     transition_scores[paths[i]] = math.random() * 0.9
   end
 
+  -- Precompute directory info for proximity calculations (matches source.lua)
+  local current_file_dir, current_file_depth = scorer.compute_dir_info(current_file)
+
   return {
     cwd = "/project",
     current_file = current_file,
+    current_file_dir = current_file_dir,
+    current_file_depth = current_file_depth,
     current_file_trigrams = current_file_tris,
     recent_files = recent_files,
     alternate_buf = paths[1],

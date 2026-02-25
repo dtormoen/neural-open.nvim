@@ -1,52 +1,78 @@
 local M = {}
 
 local math_exp = math.exp
+local trigrams = require("neural-open.trigrams")
 
 -- Reusable temp items for matcher calls in on_match_handler (avoids 2 allocations per item per keystroke)
 local _mock_item = { text = "", idx = 1, score = 0 }
 local _temp_item = { text = "", idx = 1, score = 0 }
 
----@param path string
----@return string
-local function normalize_path(path)
-  path = path:gsub("\\", "/")
-  path = path:gsub("/+", "/")
-  return path
+--- Compute directory path and depth from a file path.
+--- Returns the directory (up to and including last /) and the segment count.
+---@param file_path string
+---@return string? dir Directory portion, nil if no directory
+---@return number depth Number of directory segments (slash count excluding leading /)
+function M.compute_dir_info(file_path)
+  if not file_path or file_path == "" then
+    return nil, 0
+  end
+  local dir = file_path:match("(.*/)")
+  if not dir then
+    return nil, 0
+  end
+  local depth = 0
+  for i = 2, #dir do
+    if dir:byte(i) == 0x2F then
+      depth = depth + 1
+    end
+  end
+  return dir, depth
 end
 
----@param path string
----@return string
-local function get_directory(path)
-  local dir = path:match("(.*/)")
-  return dir or ""
-end
-
----@param current_path string?
----@param target_path string
----@return number
-local function calculate_proximity(current_path, target_path)
-  if not current_path or current_path == "" then
+--- Calculate directory proximity between current file and a target path.
+--- Uses zero-allocation character scanning instead of vim.split.
+---@param current_dir string Precomputed directory of current file (up to and including last /)
+---@param current_depth number Precomputed depth of current directory (slash count excluding leading /)
+---@param target_path string The target file path
+---@return number Proximity score in [0, 1]
+local function calculate_proximity(current_dir, current_depth, target_path)
+  if not current_dir then
     return 0
   end
 
-  local current_dir = get_directory(normalize_path(current_path))
-  local target_dir = get_directory(normalize_path(target_path))
+  -- Find end of target directory (last slash position)
+  local last_slash = 0
+  for i = #target_path, 1, -1 do
+    if target_path:byte(i) == 0x2F then
+      last_slash = i
+      break
+    end
+  end
+  if last_slash == 0 then
+    return 0
+  end
 
-  if current_dir == target_dir then
+  -- Quick exact-match check: compare directory portions directly
+  local current_dir_len = #current_dir
+  if current_dir_len == last_slash and target_path:sub(1, last_slash) == current_dir then
     return 1.0
   end
 
-  local current_parts = vim.split(current_dir, "/", { trimempty = true })
-  local target_parts = vim.split(target_dir, "/", { trimempty = true })
+  -- Root-only paths have no segments to compare beyond the exact match above
+  if last_slash <= 1 then
+    return 0
+  end
 
+  -- Scan for common prefix, counting complete matching directory segments.
+  -- Start at position 2 to skip the leading '/' (root prefix, not a segment).
   local common_depth = 0
-  local min_depth = math.min(#current_parts, #target_parts)
-
-  for i = 1, min_depth do
-    if current_parts[i] == target_parts[i] then
-      common_depth = i
-    else
+  local scan_len = math.min(current_dir_len, last_slash)
+  for i = 2, scan_len do
+    if current_dir:byte(i) ~= target_path:byte(i) then
       break
+    end
+    if current_dir:byte(i) == 0x2F then
+      common_depth = common_depth + 1
     end
   end
 
@@ -54,8 +80,15 @@ local function calculate_proximity(current_path, target_path)
     return 0
   end
 
-  local total_depth = math.max(#current_parts, #target_parts)
-  return common_depth / total_depth
+  -- Count target directory depth (number of slashes excluding leading)
+  local target_depth = 0
+  for i = 2, last_slash do
+    if target_path:byte(i) == 0x2F then
+      target_depth = target_depth + 1
+    end
+  end
+
+  return common_depth / math.max(current_depth, target_depth)
 end
 
 --- Get virtual name for a file, handling special files like index.js
@@ -63,13 +96,14 @@ end
 ---@param special_files table<string, boolean>? Table of special filenames
 ---@return string Virtual name for display/matching
 function M.get_virtual_name(path, special_files)
-  local filename = vim.fn.fnamemodify(path, ":t")
-  local parent_dir = vim.fn.fnamemodify(path, ":h:t")
-
-  if special_files and special_files[filename] and parent_dir and parent_dir ~= "" then
-    return parent_dir .. "/" .. filename
+  local filename = path:match("[^/]+$") or path
+  if not special_files or not special_files[filename] then
+    return filename
   end
-
+  local parent = path:match("([^/]+)/[^/]+$")
+  if parent and parent ~= "" then
+    return parent .. "/" .. filename
+  end
   return filename
 end
 
@@ -107,24 +141,24 @@ function M.compute_static_raw_features(normalized_path, context, item_data)
     transition = 0,
   }
 
-  -- Calculate proximity
-  if context.current_file and context.current_file ~= "" then
-    raw_features.proximity = calculate_proximity(context.current_file, normalized_path)
+  -- Calculate proximity using precomputed directory context (fast path)
+  -- Falls back to deriving from current_file when precomputed values aren't available
+  local current_dir = context.current_file_dir
+  local current_depth = context.current_file_depth
+  if not current_dir and context.current_file and context.current_file ~= "" then
+    current_dir, current_depth = M.compute_dir_info(context.current_file)
+  end
+  if current_dir then
+    raw_features.proximity = calculate_proximity(current_dir, current_depth, normalized_path)
   end
 
   -- Check if in project
-  if context.cwd then
-    local normalized_file = normalize_path(normalized_path)
-    local normalized_cwd = normalize_path(context.cwd)
-    if normalized_file:sub(1, #normalized_cwd) == normalized_cwd then
-      raw_features.project = 1
-    end
+  if context.cwd and normalized_path:find(context.cwd, 1, true) == 1 then
+    raw_features.project = 1
   end
 
   -- Calculate trigram similarity if current file trigrams are available
   if context.current_file_trigrams and item_data.virtual_name then
-    local trigrams = require("neural-open.trigrams")
-
     -- Compute target file's trigrams
     local target_trigrams = trigrams.compute_trigrams(item_data.virtual_name)
 

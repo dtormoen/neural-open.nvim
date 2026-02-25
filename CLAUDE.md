@@ -42,7 +42,7 @@ The plugin uses a dedicated `nos` field on picker items to encapsulate all neura
 - **is_open_buffer**, **is_alternate**: Buffer state flags
 - **recent_rank**: Position in persistent recency list (1-based)
 - **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
-- **ctx**: Reference to shared session context (contains cwd, current_file, current_file_trigrams, recent_files, alternate_buf)
+- **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, recent_files, alternate_buf)
 
 This structure provides clean separation between plugin-specific data and native Snacks picker fields. The scoring pipeline follows: raw_features → normalized_features → (apply weights) → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Component scores are calculated on-the-fly from normalized features and weights when needed using `weights.calculate_components()`.
 

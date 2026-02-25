@@ -22,15 +22,17 @@ function M.capture_context(ctx)
     end
   end
 
-  -- Compute trigrams for current file's virtual name if available
+  -- Precompute per-session current file data (trigrams, directory info)
   local current_file_trigrams = nil
   local current_file_virtual_name = ""
-  if current_file and current_file ~= "" then
+  local current_file_dir, current_file_depth = nil, 0
+  if current_file ~= "" then
     local scorer = require("neural-open.scorer")
-    local trigrams = require("neural-open.trigrams")
+    local trigrams_mod = require("neural-open.trigrams")
     local config = require("neural-open").config
     current_file_virtual_name = scorer.get_virtual_name(current_file, config.special_files)
-    current_file_trigrams = trigrams.compute_trigrams(current_file_virtual_name)
+    current_file_trigrams = trigrams_mod.compute_trigrams(current_file_virtual_name)
+    current_file_dir, current_file_depth = scorer.compute_dir_info(current_file)
   end
 
   -- Setup the algorithm once for the session
@@ -55,6 +57,8 @@ function M.capture_context(ctx)
     alternate_buf = alternate_buf,
     cwd = cwd,
     current_file = current_file,
+    current_file_dir = current_file_dir,
+    current_file_depth = current_file_depth,
     current_file_trigrams = current_file_trigrams,
     current_file_virtual_name = current_file_virtual_name,
     -- Store algorithm for this session
