@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v3
 
       - uses: leafo/gh-actions-lua@v12
         with:
