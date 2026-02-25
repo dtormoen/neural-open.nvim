@@ -42,7 +42,7 @@ The plugin uses a dedicated `nos` field on picker items to encapsulate all neura
 - **recent_rank**: Position in persistent recency list (1-based)
 - **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
 - **input_buf**: Pre-allocated flat array of 10 normalized features used by all algorithms. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
-- **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, recent_files, alternate_buf)
+- **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, current_file_trigrams_size, recent_files, alternate_buf)
 
 This structure provides clean separation between plugin-specific data and native Snacks picker fields. All algorithms use a unified scoring pipeline: raw_features → input_buf (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → `calculate_score(input_buf)` → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Classic pre-computes a positional weight array at weight-load time for a dot-product hot path. `scorer.normalize_features()` is retained as a utility for debug views and weight learning.
 

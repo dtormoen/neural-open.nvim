@@ -97,7 +97,6 @@ describe("transition integration", function()
         recent_rank = nil,
         virtual_name = "b.lua",
       }
-
       local raw_features = scorer.compute_static_raw_features(dest_file, context, item_data)
       assert.equals(0.5, raw_features.transition)
 
@@ -138,7 +137,6 @@ describe("transition integration", function()
         recent_rank = nil,
         virtual_name = "b.lua",
       }
-
       local raw_features = scorer.compute_static_raw_features(dest_file, context, item_data)
       assert.is_near(0.833, raw_features.transition, 0.001)
     end)
@@ -224,7 +222,6 @@ describe("transition integration", function()
         recent_rank = nil,
         virtual_name = "file.lua",
       }
-
       local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
       assert.equals(0, raw_features.transition)
     end)
@@ -272,14 +269,13 @@ describe("transition integration", function()
         algorithm = classic,
       }
 
+      -- Compute features
       local item_data = {
         is_open_buffer = false,
         is_alternate = false,
         recent_rank = nil,
         virtual_name = "b.lua",
       }
-
-      -- Compute features
       local raw_features = scorer.compute_static_raw_features(dest_file, context, item_data)
       local normalized_features = scorer.normalize_features(raw_features)
 

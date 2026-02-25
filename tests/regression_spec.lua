@@ -149,6 +149,7 @@ describe("scoring pipeline regression", function()
           cwd = test_case.context.cwd,
           current_file = test_case.context.current_file,
           current_file_trigrams = current_file_trigrams,
+          current_file_trigrams_size = current_file_trigrams and trigrams.count_trigrams(current_file_trigrams) or 0,
           current_file_virtual_name = current_file_virtual_name,
           algorithm = algorithms.nn,
           transition_scores = test_case.context.transition_scores or {},

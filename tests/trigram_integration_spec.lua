@@ -93,23 +93,21 @@ describe("trigram scoring integration", function()
     local context
 
     before_each(function()
+      local tris = require("neural-open.trigrams")
+      local current_file_trigrams = tris.compute_trigrams("user_controller.rb")
       context = {
         current_file = "/path/to/user_controller.rb",
-        current_file_trigrams = require("neural-open.trigrams").compute_trigrams("user_controller.rb"),
+        current_file_trigrams = current_file_trigrams,
+        current_file_trigrams_size = tris.count_trigrams(current_file_trigrams),
         cwd = "/path",
       }
     end)
 
     it("should compute trigram similarity for similar files", function()
       local normalized_path = "/path/to/user_service.rb"
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "user_service.rb",
-      }
 
-      local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "user_service.rb")
 
       -- Should have non-zero trigram score due to shared "user" and ".rb"
       assert.is_not_nil(raw_features.trigram)
@@ -123,14 +121,9 @@ describe("trigram scoring integration", function()
 
     it("should compute low similarity for different files", function()
       local normalized_path = "/path/to/database.yml"
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "database.yml",
-      }
 
-      local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "database.yml")
 
       assert.is_not_nil(raw_features.trigram)
       assert.is_true(raw_features.trigram < 0.3)
@@ -138,17 +131,14 @@ describe("trigram scoring integration", function()
 
     it("should use virtual name for index files", function()
       local normalized_path = "/path/to/components/index.js"
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "components/index.js",
-      }
+      local tris = require("neural-open.trigrams")
 
       context.current_file = "/path/to/helpers/index.js"
-      context.current_file_trigrams = require("neural-open.trigrams").compute_trigrams("helpers/index.js")
+      context.current_file_trigrams = tris.compute_trigrams("helpers/index.js")
+      context.current_file_trigrams_size = tris.count_trigrams(context.current_file_trigrams)
 
-      local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "components/index.js")
 
       -- Should have moderate similarity due to shared "index.js"
       assert.is_not_nil(raw_features.trigram)
@@ -158,16 +148,11 @@ describe("trigram scoring integration", function()
 
     it("should handle missing current file trigrams", function()
       local normalized_path = "/path/to/test.js"
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "test.js",
-      }
 
       context.current_file_trigrams = nil
+      context.current_file_trigrams_size = 0
 
-      local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+      local raw_features = scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "test.js")
 
       -- Should default to 0 when no current file trigrams
       assert.equals(0, raw_features.trigram)
@@ -194,28 +179,25 @@ describe("trigram scoring integration", function()
       test_weights.trigram = 50
       weights_module.save_weights("classic", test_weights)
 
+      local tris = require("neural-open.trigrams")
+      local current_file_trigrams = tris.compute_trigrams("test_helper.js")
       local context = {
         current_file = "/path/to/test_helper.js",
-        current_file_trigrams = require("neural-open.trigrams").compute_trigrams("test_helper.js"),
+        current_file_trigrams = current_file_trigrams,
+        current_file_trigrams_size = tris.count_trigrams(current_file_trigrams),
         cwd = "/path",
       }
 
       -- Compute features for first item
-      local raw_features1 = scorer.compute_static_raw_features(
-        "/path/to/test_helpers.js",
-        context,
-        { is_open_buffer = false, is_alternate = false, virtual_name = "test_helpers.js" }
-      )
+      local raw_features1 =
+        scorer.compute_static_raw_features("/path/to/test_helpers.js", context, false, false, nil, "test_helpers.js")
       local normalized_features1 = scorer.normalize_features(raw_features1)
       local input_buf1 = make_input_buf(raw_features1)
       local score1 = algorithm.calculate_score(input_buf1)
 
       -- Compute features for second item
-      local raw_features2 = scorer.compute_static_raw_features(
-        "/path/to/database.yml",
-        context,
-        { is_open_buffer = false, is_alternate = false, virtual_name = "database.yml" }
-      )
+      local raw_features2 =
+        scorer.compute_static_raw_features("/path/to/database.yml", context, false, false, nil, "database.yml")
       local normalized_features2 = scorer.normalize_features(raw_features2)
       local input_buf2 = make_input_buf(raw_features2)
       local score2 = algorithm.calculate_score(input_buf2)

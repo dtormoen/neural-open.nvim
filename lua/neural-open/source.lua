@@ -37,13 +37,18 @@ function M.capture_context(ctx)
   local current_file_virtual_name = ""
   local current_file_dir, current_file_depth = nil, 0
   local config = require("neural-open").config
+  local scorer = require("neural-open.scorer")
+  scorer.set_recency_list_size(config.recency_list_size)
   if current_file ~= "" then
-    local scorer = require("neural-open.scorer")
     local trigrams_mod = require("neural-open.trigrams")
-    scorer.set_recency_list_size(config.recency_list_size)
     current_file_virtual_name = scorer.get_virtual_name(current_file, config.special_files)
     current_file_trigrams = trigrams_mod.compute_trigrams(current_file_virtual_name)
     current_file_dir, current_file_depth = scorer.compute_dir_info(current_file)
+  end
+
+  local current_file_trigrams_size = 0
+  if current_file_trigrams then
+    current_file_trigrams_size = require("neural-open.trigrams").count_trigrams(current_file_trigrams)
   end
 
   -- Setup the algorithm once for the session
@@ -71,6 +76,7 @@ function M.capture_context(ctx)
     current_file_dir = current_file_dir,
     current_file_depth = current_file_depth,
     current_file_trigrams = current_file_trigrams,
+    current_file_trigrams_size = current_file_trigrams_size,
     current_file_virtual_name = current_file_virtual_name,
     -- Store algorithm for this session
     algorithm = algorithm,
@@ -141,12 +147,14 @@ function M.create_neural_transform(config, scorer, opts)
     local virtual_name = scorer.get_virtual_name(normalized_path, config.special_files)
 
     -- Compute static raw features once during transform
-    local raw_features = scorer.compute_static_raw_features(normalized_path, nos_ctx, {
-      is_open_buffer = is_open_buffer,
-      is_alternate = is_alternate,
-      recent_rank = recent_rank,
-      virtual_name = virtual_name,
-    })
+    local raw_features = scorer.compute_static_raw_features(
+      normalized_path,
+      nos_ctx,
+      is_open_buffer,
+      is_alternate,
+      recent_rank,
+      virtual_name
+    )
 
     -- Pre-allocate input_buf with normalized static features for all algorithms.
     -- Dynamic features (match, virtual_name, frecency) are filled per-keystroke in on_match_handler.

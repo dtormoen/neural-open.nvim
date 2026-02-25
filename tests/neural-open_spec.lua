@@ -125,14 +125,8 @@ describe("neural-open", function()
           cwd = "/path",
           current_file = "/path/to/other.lua",
         }
-        local item_data = {
-          is_open_buffer = false,
-          is_alternate = false,
-          recent_rank = nil,
-          virtual_name = "file.lua",
-        }
 
-        local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+        local raw_features = scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "file.lua")
 
         assert.is_not_nil(raw_features)
         assert.equals(0, raw_features.open)
@@ -145,14 +139,9 @@ describe("neural-open", function()
         helpers.with_test_buffer("/path/to/buffer.lua", function(test_buf)
           local normalized_path = "/path/to/buffer.lua"
           local context = { cwd = "/path" }
-          local item_data = {
-            is_open_buffer = true,
-            is_alternate = false,
-            recent_rank = nil,
-            virtual_name = "buffer.lua",
-          }
 
-          local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+          local raw_features =
+            scorer.compute_static_raw_features(normalized_path, context, true, false, nil, "buffer.lua")
 
           assert.equals(1, raw_features.open)
           assert.equals(0, raw_features.alt)
@@ -165,14 +154,8 @@ describe("neural-open", function()
           cwd = "/path/to",
           current_file = "/path/to/current.lua",
         }
-        local item_data = {
-          is_open_buffer = false,
-          is_alternate = false,
-          recent_rank = nil,
-          virtual_name = "file.lua",
-        }
 
-        local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+        local raw_features = scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "file.lua")
 
         assert.is_not_nil(raw_features.proximity)
         assert.is_true(raw_features.proximity > 0)
@@ -181,19 +164,16 @@ describe("neural-open", function()
 
       it("should handle trigram similarity", function()
         local normalized_path = "/path/to/index.js"
-        local trigrams = require("neural-open.trigrams")
+        local tris = require("neural-open.trigrams")
+        local current_file_trigrams = tris.compute_trigrams("helper.js")
         local context = {
           cwd = "/path",
-          current_file_trigrams = trigrams.compute_trigrams("helper.js"),
-        }
-        local item_data = {
-          is_open_buffer = false,
-          is_alternate = false,
-          recent_rank = nil,
-          virtual_name = "to/index.js",
+          current_file_trigrams = current_file_trigrams,
+          current_file_trigrams_size = tris.count_trigrams(current_file_trigrams),
         }
 
-        local raw_features = scorer.compute_static_raw_features(normalized_path, context, item_data)
+        local raw_features =
+          scorer.compute_static_raw_features(normalized_path, context, false, false, nil, "to/index.js")
 
         assert.is_not_nil(raw_features.trigram)
         -- Should have some similarity due to shared ".js" extension

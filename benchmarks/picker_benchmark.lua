@@ -197,6 +197,7 @@ local function create_context(paths)
   local current_file = "/project/src/components/App.tsx"
   local current_file_vname = scorer.get_virtual_name(current_file, config.special_files)
   local current_file_tris = trigrams.compute_trigrams(current_file_vname)
+  local current_file_tris_size = trigrams.count_trigrams(current_file_tris)
 
   -- Build recency map from first 100 paths
   local recent_files = {}
@@ -221,6 +222,7 @@ local function create_context(paths)
     current_file_dir = current_file_dir,
     current_file_depth = current_file_depth,
     current_file_trigrams = current_file_tris,
+    current_file_trigrams_size = current_file_tris_size,
     recent_files = recent_files,
     alternate_buf = paths[1],
     algorithm = nn,
@@ -244,14 +246,9 @@ local function create_items(paths, context)
     local recent_entry = context.recent_files[path]
     local virtual_name = scorer.get_virtual_name(path, config.special_files)
 
-    local item_data = {
-      is_open_buffer = is_open,
-      is_alternate = is_alt,
-      recent_rank = recent_entry and recent_entry.recent_rank or nil,
-      virtual_name = virtual_name,
-    }
+    local recent_rank = recent_entry and recent_entry.recent_rank or nil
 
-    local raw_features = scorer.compute_static_raw_features(path, context, item_data)
+    local raw_features = scorer.compute_static_raw_features(path, context, is_open, is_alt, recent_rank, virtual_name)
 
     -- Set plausible dynamic feature values (normally set per-keystroke by matcher)
     raw_features.match = math.random(0, 300)
@@ -260,8 +257,8 @@ local function create_items(paths, context)
 
     -- Pre-allocate input_buf (mirrors source.lua transform phase)
     local recency_val = 0
-    if item_data.recent_rank and item_data.recent_rank > 0 then
-      recency_val = scorer.calculate_recency_score(item_data.recent_rank)
+    if recent_rank and recent_rank > 0 then
+      recency_val = scorer.calculate_recency_score(recent_rank)
     end
     local input_buf = {
       0, -- [1] match (dynamic)
@@ -285,7 +282,7 @@ local function create_items(paths, context)
         normalized_path = path,
         is_open_buffer = is_open,
         is_alternate = is_alt,
-        recent_rank = item_data.recent_rank,
+        recent_rank = recent_rank,
         virtual_name = virtual_name,
         input_buf = input_buf,
         ctx = context,
@@ -373,13 +370,14 @@ for _, size in ipairs(REPO_SIZES) do
   -- 1. Static feature computation (one-time per item)
   local static_median = benchmark(function()
     for _, item in ipairs(items) do
-      local item_data = {
-        is_open_buffer = item.nos.is_open_buffer,
-        is_alternate = item.nos.is_alternate,
-        recent_rank = item.nos.recent_rank,
-        virtual_name = item.nos.virtual_name,
-      }
-      scorer.compute_static_raw_features(item.nos.normalized_path, context, item_data)
+      scorer.compute_static_raw_features(
+        item.nos.normalized_path,
+        context,
+        item.nos.is_open_buffer,
+        item.nos.is_alternate,
+        item.nos.recent_rank,
+        item.nos.virtual_name
+      )
     end
   end)
 
@@ -428,21 +426,61 @@ for _, size in ipairs(REPO_SIZES) do
     end
   end)
 
+  -- 5b. Trigram computation (zero-allocation direct path, used in production)
+  local trigram_direct_median = benchmark(function()
+    for i = 1, #virtual_names do
+      trigrams.dice_coefficient_direct(
+        context.current_file_trigrams,
+        context.current_file_trigrams_size,
+        virtual_names[i]
+      )
+    end
+  end)
+
   -- 6. Transform phase: full per-item processing during discovery
+  -- Matches source.lua create_neural_transform() including nn_input alloc and nos table creation
   local transform_median = benchmark(function()
     local done = {}
     for _, item in ipairs(items) do
       local path = item.nos.normalized_path
       if not done[path] then
         done[path] = true
-        scorer.get_virtual_name(path, config.special_files)
-        local item_data = {
-          is_open_buffer = item.nos.is_open_buffer,
-          is_alternate = item.nos.is_alternate,
-          recent_rank = item.nos.recent_rank,
-          virtual_name = item.nos.virtual_name,
+        local is_open_buffer = item.nos.is_open_buffer
+        local is_alternate = item.nos.is_alternate
+        local recent_rank = item.nos.recent_rank
+        local virtual_name = scorer.get_virtual_name(path, config.special_files)
+        local raw_features =
+          scorer.compute_static_raw_features(path, context, is_open_buffer, is_alternate, recent_rank, virtual_name)
+        -- NN input buffer allocation (mirrors source.lua)
+        local recency_val = 0
+        if recent_rank and recent_rank > 0 then
+          recency_val = scorer.calculate_recency_score(recent_rank)
+        end
+        local _nn_input = {
+          0,
+          0,
+          0,
+          is_open_buffer and 1 or 0,
+          is_alternate and 1 or 0,
+          raw_features.proximity,
+          raw_features.project,
+          recency_val,
+          raw_features.trigram,
+          raw_features.transition,
         }
-        scorer.compute_static_raw_features(path, context, item_data)
+        -- nos table creation (mirrors source.lua)
+        local _nos = { -- luacheck: ignore 211
+          normalized_path = path,
+          virtual_name = virtual_name,
+          is_open_buffer = is_open_buffer,
+          is_alternate = is_alternate,
+          recent_rank = recent_rank,
+          nn_input = _nn_input,
+          ctx = context,
+          raw_features = raw_features,
+          normalized_features = {},
+          neural_score = 0,
+        }
       end
     end
   end)
@@ -460,7 +498,8 @@ for _, size in ipairs(REPO_SIZES) do
   print(string.format("Per-keystroke:      %s", format_timing(keystroke_median, size)))
   print(string.format("  normalize:        %s", format_timing(normalize_median, size)))
   print(string.format("  nn_inference:     %s", format_timing(nn_median, size)))
-  print(string.format("  trigrams:         %s", format_timing(trigram_median, size)))
+  print(string.format("  trigrams (alloc): %s", format_timing(trigram_median, size)))
+  print(string.format("  trigrams (direct):%s", format_timing(trigram_direct_median, size)))
   print(string.format("Transform phase:    %s", format_timing(transform_median, size)))
   print(string.format("Weight loading:     %8.2fms total (one-time)", load_median / 1e6))
 end

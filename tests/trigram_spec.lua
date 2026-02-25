@@ -105,6 +105,86 @@ describe("trigram module", function()
     end)
   end)
 
+  describe("count_trigrams", function()
+    it("should return 0 for empty table", function()
+      assert.equals(0, trigrams.count_trigrams({}))
+    end)
+
+    it("should count entries correctly", function()
+      local tris = trigrams.compute_trigrams("hello")
+      assert.equals(3, trigrams.count_trigrams(tris))
+    end)
+
+    it("should count entries for longer strings", function()
+      local tris = trigrams.compute_trigrams("test-file.js")
+      assert.equals(10, trigrams.count_trigrams(tris))
+    end)
+  end)
+
+  describe("dice_coefficient_direct", function()
+    it("should return 0 when trigrams1 is empty", function()
+      assert.equals(0, trigrams.dice_coefficient_direct({}, 0, "hello"))
+    end)
+
+    it("should return 0 for nil text", function()
+      local tris = trigrams.compute_trigrams("hello")
+      assert.equals(0, trigrams.dice_coefficient_direct(tris, 3, nil))
+    end)
+
+    it("should return 0 for empty text", function()
+      local tris = trigrams.compute_trigrams("hello")
+      assert.equals(0, trigrams.dice_coefficient_direct(tris, 3, ""))
+    end)
+
+    it("should return 0 for text shorter than 3 chars", function()
+      local tris = trigrams.compute_trigrams("hello")
+      assert.equals(0, trigrams.dice_coefficient_direct(tris, 3, "ab"))
+    end)
+
+    it("should match dice_coefficient for identical strings", function()
+      local text = "hello"
+      local tris = trigrams.compute_trigrams(text)
+      local size = trigrams.count_trigrams(tris)
+      local expected = trigrams.dice_coefficient(tris, trigrams.compute_trigrams(text))
+      assert.equals(expected, trigrams.dice_coefficient_direct(tris, size, text))
+    end)
+
+    it("should match dice_coefficient for different strings", function()
+      local pairs_to_test = {
+        { "test.lua", "test.js" },
+        { "user_controller.rb", "user_service.rb" },
+        { "index.js", "main.js" },
+        { "components/index.js", "helpers/index.js" },
+        { "Hello", "hello" },
+        { "test_helper.js", "test_helpers.js" },
+        { "index.html", "database.yml" },
+      }
+      for _, pair in ipairs(pairs_to_test) do
+        local tris1 = trigrams.compute_trigrams(pair[1])
+        local size1 = trigrams.count_trigrams(tris1)
+        local tris2 = trigrams.compute_trigrams(pair[2])
+        local expected = trigrams.dice_coefficient(tris1, tris2)
+        local actual = trigrams.dice_coefficient_direct(tris1, size1, pair[2])
+        assert.are.near(expected, actual, 1e-15, "mismatch for " .. pair[1] .. " vs " .. pair[2])
+      end
+    end)
+
+    it("should be case insensitive", function()
+      local tris = trigrams.compute_trigrams("hello")
+      local size = trigrams.count_trigrams(tris)
+      local lower_result = trigrams.dice_coefficient_direct(tris, size, "hello")
+      local upper_result = trigrams.dice_coefficient_direct(tris, size, "HELLO")
+      assert.equals(lower_result, upper_result)
+    end)
+
+    it("should handle duplicate trigrams in text2", function()
+      local tris = trigrams.compute_trigrams("aaaa")
+      local size = trigrams.count_trigrams(tris)
+      local expected = trigrams.dice_coefficient(tris, trigrams.compute_trigrams("aaaa"))
+      assert.equals(expected, trigrams.dice_coefficient_direct(tris, size, "aaaa"))
+    end)
+  end)
+
   describe("dice_coefficient regression", function()
     -- Pin exact dice_coefficient values for the full compute_trigrams -> dice_coefficient pipeline.
     -- These must remain identical after any internal representation changes (e.g. byte-based keys).

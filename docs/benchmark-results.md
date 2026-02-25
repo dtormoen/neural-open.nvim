@@ -214,12 +214,69 @@ Weight loading:         0.01ms total (one-time)
 - Inline normalization reduces function call overhead in the per-keystroke fast path
 - Trigram benchmark added for visibility into static feature costs (trigrams ~50% of static features at scale)
 
+## Transform Phase Optimizations
+
+Eliminates per-item allocations in the static feature computation and improves
+benchmark coverage to match the actual transform path in `source.lua`:
+
+- Zero-allocation trigram Dice coefficient (`dice_coefficient_direct`) using generation counter pattern — eliminates per-item hash table + `string.lower()` allocation
+- Inline byte-level ASCII lowering avoids `string.lower()` string allocation per item
+- Eliminate `item_data` table allocation by passing fields directly as function arguments
+- Precompute `current_file_trigrams_size` once per session (enables direct coefficient)
+- Move `set_recency_list_size()` outside current-file guard for correctness
+- Benchmark now includes nn_input allocation and nos table creation (matches actual source.lua transform)
+
+```
+--- 1,000 files ---
+Static features:        0.21ms total |  0.205us/item
+Per-keystroke fast:     0.64ms total |  0.643us/item
+  nn_inference:         0.64ms total |  0.637us/item
+  trigrams (alloc):     0.37ms total |  0.367us/item
+  trigrams (direct):    0.06ms total |  0.063us/item
+Transform phase:        0.79ms total |  0.789us/item
+Weight loading:         0.01ms total (one-time)
+
+--- 10,000 files ---
+Static features:        3.01ms total |  0.301us/item
+Per-keystroke fast:     6.74ms total |  0.674us/item
+  nn_inference:         6.41ms total |  0.641us/item
+  trigrams (alloc):     4.40ms total |  0.440us/item
+  trigrams (direct):    1.15ms total |  0.115us/item
+Transform phase:        8.68ms total |  0.868us/item
+Weight loading:         0.01ms total (one-time)
+
+--- 100,000 files ---
+Static features:       36.50ms total |  0.365us/item
+Per-keystroke fast:    63.95ms total |  0.640us/item
+  nn_inference:        63.16ms total |  0.632us/item
+  trigrams (alloc):    55.20ms total |  0.552us/item
+  trigrams (direct):   15.93ms total |  0.159us/item
+Transform phase:       97.43ms total |  0.974us/item
+Weight loading:         0.01ms total (one-time)
+```
+
+| Metric | 1K files | 10K files | 100K files |
+|--------|----------|-----------|------------|
+| Static features (per item) | 0.54 → 0.21 us (**2.6x**) | 0.68 → 0.30 us (**2.3x**) | 1.28 → 0.37 us (**3.5x**) |
+| Trigrams direct vs alloc (per item) | 0.37 → 0.06 us (**5.8x**) | 0.44 → 0.12 us (**3.8x**) | 0.55 → 0.16 us (**3.5x**) |
+
+- **2.3-3.5x faster** static feature computation from zero-allocation trigram Dice coefficient
+- **3.5-5.8x faster** isolated trigram computation from eliminating per-item hash table and string allocation
+- Speedup increases with repo size due to reduced GC pressure from zero per-item allocations
+- At 100K files, static features drop from 128ms to 37ms — a 91ms reduction in picker open time
+- Transform phase (including nn_input + nos table allocation) is 97ms at 100K — well under interactive thresholds
+
 ## Cumulative Impact
 
-End-to-end improvement from baseline to current state at 100K files:
+End-to-end improvement from baseline to current state at 100K files.
+Production hot path: Static features (one-time at open) + Per-keystroke fast (each keystroke) + NN inference (per item per keystroke).
 
 | Metric | Baseline (69d7b15) | Current | Speedup |
 |--------|-------------------|---------|---------|
-| Static features | 632ms (6.32 us/item) | 128ms (1.28 us/item) | **4.9x** |
-| Per-keystroke | 1155ms (11.55 us/item) | 78ms (0.78 us/item) | **14.8x** |
-| NN inference | 1039ms (10.39 us/item) | 71ms (0.71 us/item) | **14.6x** |
+| Static features | 632ms (6.32 us/item) | 37ms (0.37 us/item) | **17.1x** |
+| Per-keystroke fast | 1155ms (11.55 us/item)¹ | 64ms (0.64 us/item) | **18.0x** |
+| NN inference | 1039ms (10.39 us/item) | 63ms (0.63 us/item) | **16.5x** |
+| Transform phase² | — | 97ms (0.97 us/item) | — |
+
+¹ Baseline had no fast path; uses per-keystroke (normalize + inference) for comparison.
+² Transform phase benchmark introduced after baseline; includes full per-item processing (static features + nn_input allocation + nos table creation).

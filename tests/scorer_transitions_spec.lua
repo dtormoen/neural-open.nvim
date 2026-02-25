@@ -21,14 +21,8 @@ describe("scorer with transitions", function()
         -- No transition_scores
       }
 
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "file.lua",
-      }
-
-      local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features("/test/project/file.lua", context, false, false, nil, "file.lua")
 
       assert.equals(0, raw_features.transition)
     end)
@@ -44,14 +38,8 @@ describe("scorer with transitions", function()
         },
       }
 
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "file.lua",
-      }
-
-      local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features("/test/project/file.lua", context, false, false, nil, "file.lua")
 
       assert.equals(0.5, raw_features.transition)
     end)
@@ -66,14 +54,8 @@ describe("scorer with transitions", function()
         },
       }
 
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "file.lua",
-      }
-
-      local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features("/test/project/file.lua", context, false, false, nil, "file.lua")
 
       assert.equals(0, raw_features.transition)
     end)
@@ -86,14 +68,8 @@ describe("scorer with transitions", function()
         transition_scores = {},
       }
 
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "file.lua",
-      }
-
-      local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features("/test/project/file.lua", context, false, false, nil, "file.lua")
 
       assert.equals(0, raw_features.transition)
     end)
@@ -108,14 +84,8 @@ describe("scorer with transitions", function()
         },
       }
 
-      local item_data = {
-        is_open_buffer = true,
-        is_alternate = false,
-        recent_rank = 2,
-        virtual_name = "file.lua",
-      }
-
-      local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features("/test/project/file.lua", context, true, false, 2, "file.lua")
 
       -- Verify all features are computed
       assert.equals(0, raw_features.match) -- Will be set in on_match_handler
@@ -275,15 +245,9 @@ describe("scorer with transitions", function()
         },
       }
 
-      local item_data = {
-        is_open_buffer = false,
-        is_alternate = false,
-        recent_rank = nil,
-        virtual_name = "file.lua",
-      }
-
       -- Compute static features (including transition)
-      local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
+      local raw_features =
+        scorer.compute_static_raw_features("/test/project/file.lua", context, false, false, nil, "file.lua")
       assert.equals(0.5, raw_features.transition)
 
       -- Create input_buf pre-filled with static normalized features (as source.lua transform does)

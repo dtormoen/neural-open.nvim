@@ -149,18 +149,28 @@ end
 --- These are computed once per item during the transform phase
 ---@param normalized_path string The normalized absolute path
 ---@param context NosContext The shared session context
----@param item_data table Additional item-specific data
+---@param is_open_buffer boolean Whether the file is open in a buffer
+---@param is_alternate boolean Whether the file is the alternate buffer
+---@param recent_rank number? Position in recent files (1-based)
+---@param virtual_name string? Virtual name for special files
 ---@return NosRawFeatures
-function M.compute_static_raw_features(normalized_path, context, item_data)
+function M.compute_static_raw_features(
+  normalized_path,
+  context,
+  is_open_buffer,
+  is_alternate,
+  recent_rank,
+  virtual_name
+)
   local raw_features = {
     match = 0, -- Will be set in on_match_handler
     virtual_name = 0, -- Will be set in on_match_handler
     frecency = 0, -- Will be set in on_match_handler from Snacks
-    open = item_data.is_open_buffer and 1 or 0,
-    alt = item_data.is_alternate and 1 or 0,
+    open = is_open_buffer and 1 or 0,
+    alt = is_alternate and 1 or 0,
     proximity = 0,
     project = 0,
-    recency = item_data.recent_rank or 0,
+    recency = recent_rank or 0,
     trigram = 0,
     transition = 0,
   }
@@ -182,12 +192,9 @@ function M.compute_static_raw_features(normalized_path, context, item_data)
   end
 
   -- Calculate trigram similarity if current file trigrams are available
-  if context.current_file_trigrams and item_data.virtual_name then
-    -- Compute target file's trigrams
-    local target_trigrams = trigrams.compute_trigrams(item_data.virtual_name)
-
-    -- Calculate Dice coefficient
-    raw_features.trigram = trigrams.dice_coefficient(context.current_file_trigrams, target_trigrams)
+  if context.current_file_trigrams and virtual_name then
+    raw_features.trigram =
+      trigrams.dice_coefficient_direct(context.current_file_trigrams, context.current_file_trigrams_size, virtual_name)
   end
 
   -- Lookup precomputed transition score

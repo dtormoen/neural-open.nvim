@@ -45,6 +45,7 @@
 ---@field current_file_dir string? Directory portion of current_file (up to and including last /)
 ---@field current_file_depth number Number of /-separated segments in current_file_dir (excluding leading /)
 ---@field current_file_trigrams table<number, boolean>? Trigrams of current file (packed integer keys: b1*65536 + b2*256 + b3)
+---@field current_file_trigrams_size number Number of unique trigrams in current file (for dice_coefficient_direct)
 ---@field algorithm Algorithm The scoring algorithm instance for this session
 ---@field transition_scores table<string, number>? Precomputed transition scores map
 
