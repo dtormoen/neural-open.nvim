@@ -22,7 +22,7 @@ Results are documented in `docs/benchmark-results.md`.
 - **`plugin/neural-open.lua`**: Neovim plugin file for native lazy loading, commands, `<Plug>` mappings, and autocmds (BufEnter for recency tracking, VimLeavePre for recency flush)
 - **`init.lua`**: Main plugin entry point, configuration management, and Snacks.nvim integration
 - **`source.lua`**: Snacks picker source implementation with file discovery and async processing
-- **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers)
+- **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`) and `input_buf_to_features()` utility shared by all algorithms
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
 - **`recent.lua`**: Persistent recency tracking with in-memory cache and debounced disk writes
 - **`db.lua`**: JSON file storage with atomic writes for persistent weight storage
@@ -36,16 +36,15 @@ IMPORTANT: ensure that types are always up to date. Try to make types non-option
 
 The plugin uses a dedicated `nos` field on picker items to encapsulate all neural-open specific data:
 - **raw_features**: Original computed feature scores in their native units
-- **normalized_features**: Features normalized to [0,1] range for consistent weighting
 - **neural_score**: Total weighted score combining all features
 - **normalized_path**: Cached normalized absolute path for consistent file comparison
 - **is_open_buffer**, **is_alternate**: Buffer state flags
 - **recent_rank**: Position in persistent recency list (1-based)
 - **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
-- **nn_input**: Pre-allocated flat array of 10 normalized features for NN fast-path scoring (nil for classic/naive). Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke.
+- **input_buf**: Pre-allocated flat array of 10 normalized features used by all algorithms. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
 - **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, recent_files, alternate_buf)
 
-This structure provides clean separation between plugin-specific data and native Snacks picker fields. The scoring pipeline differs by algorithm. Classic/Naive: raw_features → normalized_features → (apply weights) → neural_score. NN: raw_features → nn_input (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → calculate_score_direct() → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Component scores for the Classic algorithm are calculated on-the-fly from normalized features using a local function inside classic.lua.
+This structure provides clean separation between plugin-specific data and native Snacks picker fields. All algorithms use a unified scoring pipeline: raw_features → input_buf (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → `calculate_score(input_buf)` → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Classic pre-computes a positional weight array at weight-load time for a dot-product hot path. `scorer.normalize_features()` is retained as a utility for debug views and weight learning.
 
 ### Scoring System
 
@@ -104,7 +103,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Linearly increases learning rate from 10% to 100% over first N steps
   - Enabled by default for AdamW (100 steps)
   - Helps mitigate bias correction amplification in AdamW
-- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so both `calculate_score()` and `calculate_score_direct()` run a tight loop with zero table allocations. `calculate_score_direct()` is the per-keystroke hot path for the NN algorithm, taking a pre-allocated flat array (`nn_input`) instead of a named-feature table. The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
+- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
 - **Migration**: Automatically migrates from older BCE-based format (v1.0) to pairwise hinge loss format (v2.0)
   - Preserves network weights while resetting optimizer state and training history
   - Users are notified of the upgrade
@@ -137,8 +136,8 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 ## Testing
 
 The project uses Busted for testing with comprehensive test coverage including:
-- Scorer algorithm validation with raw and normalized feature separation
-- Weight learning system testing using normalized features directly (no stored components)
+- Scorer algorithm validation with raw features and flat input buffer scoring
+- Weight learning system testing using input buffers and scorer utilities
 - Database operations and persistence
 - Mock-based unit testing for external dependencies
 - Type safety validation for the simplified `nos` field structure

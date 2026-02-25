@@ -1,5 +1,14 @@
 describe("Pairwise Hinge Loss", function()
   local nn_core
+  local scorer = require("neural-open.scorer")
+
+  local function features_to_input_buf(features)
+    local buf = {}
+    for i, name in ipairs(scorer.FEATURE_NAMES) do
+      buf[i] = features[name] or 0
+    end
+    return buf
+  end
 
   before_each(function()
     nn_core = require("neural-open.algorithms.nn_core")
@@ -338,21 +347,22 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     local function create_item(file, features, score)
+      local default_features = {
+        match = 0.5,
+        virtual_name = 0.5,
+        frecency = 0.5,
+        open = 0,
+        alt = 0,
+        proximity = 0.5,
+        project = 1,
+        recency = 0.5,
+        trigram = 0.5,
+        transition = 0.0,
+      }
       return {
         file = file,
         nos = {
-          normalized_features = features or {
-            match = 0.5,
-            virtual_name = 0.5,
-            frecency = 0.5,
-            open = 0,
-            alt = 0,
-            proximity = 0.5,
-            project = 1,
-            recency = 0.5,
-            trigram = 0.5,
-            transition = 0.0,
-          },
+          input_buf = features_to_input_buf(features or default_features),
           neural_score = score or 50,
         },
       }
@@ -640,14 +650,16 @@ describe("Pairwise Hinge Loss", function()
       }
 
       -- Get initial scores
-      local score_pos_before = nn.calculate_score(positive_features)
-      local score_neg_before = nn.calculate_score(negative_features)
+      local pos_buf = features_to_input_buf(positive_features)
+      local neg_buf = features_to_input_buf(negative_features)
+      local score_pos_before = nn.calculate_score(pos_buf)
+      local score_neg_before = nn.calculate_score(neg_buf)
       local diff_before = score_pos_before - score_neg_before
 
       -- Create items for training - add more items to top-10 for diverse training
       local items = {
-        { file = "neg.lua", nos = { normalized_features = negative_features, neural_score = 80 } },
-        { file = "pos.lua", nos = { normalized_features = positive_features, neural_score = 70 } },
+        { file = "neg.lua", nos = { input_buf = neg_buf, neural_score = 80 } },
+        { file = "pos.lua", nos = { input_buf = pos_buf, neural_score = 70 } },
       }
 
       -- Add some filler items with intermediate features to create a realistic top-10
@@ -658,7 +670,7 @@ describe("Pairwise Hinge Loss", function()
         end
         table.insert(items, {
           file = "filler" .. i .. ".lua",
-          nos = { normalized_features = filler_features, neural_score = 60 - i },
+          nos = { input_buf = features_to_input_buf(filler_features), neural_score = 60 - i },
         })
       end
 
@@ -668,8 +680,8 @@ describe("Pairwise Hinge Loss", function()
       end
 
       -- Get scores after training
-      local score_pos_after = nn.calculate_score(positive_features)
-      local score_neg_after = nn.calculate_score(negative_features)
+      local score_pos_after = nn.calculate_score(pos_buf)
+      local score_neg_after = nn.calculate_score(neg_buf)
       local diff_after = score_pos_after - score_neg_after
 
       -- Verify that difference increased or stayed positive (network learned)
@@ -728,8 +740,10 @@ describe("Pairwise Hinge Loss", function()
         transition = 0.0,
       }
 
-      local score_pos = nn.calculate_score(positive_features)
-      local score_neg = nn.calculate_score(negative_features)
+      local pos_buf = features_to_input_buf(positive_features)
+      local neg_buf = features_to_input_buf(negative_features)
+      local score_pos = nn.calculate_score(pos_buf)
+      local score_neg = nn.calculate_score(neg_buf)
 
       -- Check if margin is satisfied (this test may need adjustment based on initial weights)
       local loss = nn_core.pairwise_hinge_loss(score_pos / 100, score_neg / 100, 0.1)
@@ -737,18 +751,18 @@ describe("Pairwise Hinge Loss", function()
       -- If loss is already 0, weights shouldn't change significantly
       if loss < 0.01 then
         local items = {
-          { file = "neg.lua", nos = { normalized_features = negative_features } },
-          { file = "pos.lua", nos = { normalized_features = positive_features } },
+          { file = "neg.lua", nos = { input_buf = neg_buf } },
+          { file = "pos.lua", nos = { input_buf = pos_buf } },
         }
 
         -- Get score before
-        local before = nn.calculate_score(positive_features)
+        local before = nn.calculate_score(pos_buf)
 
         -- Train once
         nn.update_weights(items[2], items)
 
         -- Get score after
-        local after = nn.calculate_score(positive_features)
+        local after = nn.calculate_score(pos_buf)
 
         -- Score should not change much (within numerical precision)
         assert.is_true(
@@ -764,35 +778,13 @@ describe("Pairwise Hinge Loss", function()
         {
           file = "1.lua",
           nos = {
-            normalized_features = {
-              match = 0.5,
-              virtual_name = 0.5,
-              frecency = 0.5,
-              open = 0,
-              alt = 0,
-              proximity = 0.5,
-              project = 1,
-              recency = 0.5,
-              trigram = 0.5,
-              transition = 0.0,
-            },
+            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
           },
         },
         {
           file = "2.lua",
           nos = {
-            normalized_features = {
-              match = 0.4,
-              virtual_name = 0.4,
-              frecency = 0.4,
-              open = 0,
-              alt = 0,
-              proximity = 0.4,
-              project = 1,
-              recency = 0.4,
-              trigram = 0.4,
-              transition = 0.0,
-            },
+            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0 },
           },
         },
       }
@@ -856,8 +848,8 @@ describe("Pairwise Hinge Loss", function()
       }
 
       local items = {
-        { file = "low.lua", nos = { normalized_features = low_quality } },
-        { file = "high.lua", nos = { normalized_features = high_quality } },
+        { file = "low.lua", nos = { input_buf = features_to_input_buf(low_quality) } },
+        { file = "high.lua", nos = { input_buf = features_to_input_buf(high_quality) } },
       }
 
       -- Record initial loss
@@ -895,35 +887,13 @@ describe("Pairwise Hinge Loss", function()
         {
           file = "1.lua",
           nos = {
-            normalized_features = {
-              match = 0.5,
-              virtual_name = 0.5,
-              frecency = 0.5,
-              open = 0,
-              alt = 0,
-              proximity = 0.5,
-              project = 1,
-              recency = 0.5,
-              trigram = 0.5,
-              transition = 0.0,
-            },
+            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
           },
         },
         {
           file = "2.lua",
           nos = {
-            normalized_features = {
-              match = 0.4,
-              virtual_name = 0.4,
-              frecency = 0.4,
-              open = 0,
-              alt = 0,
-              proximity = 0.4,
-              project = 1,
-              recency = 0.4,
-              trigram = 0.4,
-              transition = 0.0,
-            },
+            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0 },
           },
         },
       }
@@ -1060,18 +1030,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
 
       -- Verify migration occurred
       assert.is_not_nil(_G.last_notify_message)
@@ -1143,18 +1102,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading
-      nn.calculate_score({
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
 
       -- Verify no migration notification
       assert.is_nil(_G.last_notify_message)
@@ -1210,18 +1158,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
 
       -- Verify optimizer state was reset (timestep should be 0 for new state)
       -- The migration should create a new optimizer state
@@ -1269,18 +1206,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
 
       -- Verify weights were preserved (check first weight)
       local weights = nn._get_weights()
@@ -1328,18 +1254,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (migration happens here)
-      nn.calculate_score({
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      })
+      nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 })
 
       -- Should trigger migration
       assert.is_not_nil(_G.last_notify_message)
@@ -1387,35 +1302,13 @@ describe("Pairwise Hinge Loss", function()
         {
           file = "1.lua",
           nos = {
-            normalized_features = {
-              match = 0.5,
-              virtual_name = 0.5,
-              frecency = 0.5,
-              open = 0,
-              alt = 0,
-              proximity = 0.5,
-              project = 1,
-              recency = 0.5,
-              trigram = 0.5,
-              transition = 0.0,
-            },
+            input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
           },
         },
         {
           file = "2.lua",
           nos = {
-            normalized_features = {
-              match = 0.4,
-              virtual_name = 0.4,
-              frecency = 0.4,
-              open = 0,
-              alt = 0,
-              proximity = 0.4,
-              project = 1,
-              recency = 0.4,
-              trigram = 0.4,
-              transition = 0.0,
-            },
+            input_buf = { 0.4, 0.4, 0.4, 0, 0, 0.4, 1, 0.4, 0.4, 0.0 },
           },
         },
       }
@@ -1496,23 +1389,10 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("displays margin in debug view", function()
-      local features = {
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      }
-
       local item = {
         file = "test.lua",
         nos = {
-          normalized_features = features,
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
           neural_score = 50,
         },
       }
@@ -1526,23 +1406,10 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("displays 'Hinge Loss' labels in debug view", function()
-      local features = {
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      }
-
       local item = {
         file = "test.lua",
         nos = {
-          normalized_features = features,
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
           neural_score = 50,
         },
       }
@@ -1555,23 +1422,10 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("displays pairwise training mode in debug view", function()
-      local features = {
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      }
-
       local item = {
         file = "test.lua",
         nos = {
-          normalized_features = features,
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0 },
           neural_score = 50,
         },
       }
@@ -1585,23 +1439,10 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("displays transition feature in debug output", function()
-      local features = {
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0,
-        alt = 0,
-        proximity = 0.5,
-        project = 1,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.3,
-      }
-
       local item = {
         file = "test.lua",
         nos = {
-          normalized_features = features,
+          input_buf = { 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.3 },
           neural_score = 50,
         },
       }

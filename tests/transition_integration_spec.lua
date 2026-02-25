@@ -1,3 +1,16 @@
+--- Convert raw features to a flat input buffer suitable for algorithm.calculate_score()
+---@param raw_features table
+---@return number[]
+local function make_input_buf(raw_features)
+  local _scorer = require("neural-open.scorer")
+  local norm = _scorer.normalize_features(raw_features)
+  local buf = {}
+  for i, name in ipairs(_scorer.FEATURE_NAMES) do
+    buf[i] = norm[name] or 0
+  end
+  return buf
+end
+
 describe("transition integration", function()
   local helpers = require("tests.helpers")
   local transitions
@@ -91,8 +104,9 @@ describe("transition integration", function()
       local normalized_features = scorer.normalize_features(raw_features)
       assert.equals(0.5, normalized_features.transition)
 
-      -- Calculate score with classic algorithm
-      local score = classic.calculate_score(normalized_features)
+      -- Calculate score with classic algorithm using flat input_buf
+      local input_buf = make_input_buf(raw_features)
+      local score = classic.calculate_score(input_buf)
       assert.is_true(score > 0) -- Should have some score from transition weight
     end)
 
@@ -170,8 +184,8 @@ describe("transition integration", function()
         virtual_name = "b.lua",
       }
       local raw_features_b = scorer.compute_static_raw_features(dest_b, context, item_data_b)
-      local normalized_b = scorer.normalize_features(raw_features_b)
-      local score_b = classic.calculate_score(normalized_b)
+      local input_buf_b = make_input_buf(raw_features_b)
+      local score_b = classic.calculate_score(input_buf_b)
 
       -- Score for c.lua
       local item_data_c = {
@@ -181,8 +195,8 @@ describe("transition integration", function()
         virtual_name = "c.lua",
       }
       local raw_features_c = scorer.compute_static_raw_features(dest_c, context, item_data_c)
-      local normalized_c = scorer.normalize_features(raw_features_c)
-      local score_c = classic.calculate_score(normalized_c)
+      local input_buf_c = make_input_buf(raw_features_c)
+      local score_c = classic.calculate_score(input_buf_c)
 
       -- c.lua should have higher score due to more transitions
       assert.is_true(score_c > score_b)
@@ -277,8 +291,9 @@ describe("transition integration", function()
       local expected_contribution = normalized_features.transition * transition_weight
       assert.equals(0.5 * 5, expected_contribution) -- 2.5
 
-      -- Calculate total score
-      local score = classic.calculate_score(normalized_features)
+      -- Calculate total score using flat input_buf
+      local input_buf = make_input_buf(raw_features)
+      local score = classic.calculate_score(input_buf)
 
       -- Score should include the transition contribution
       assert.is_true(score >= expected_contribution)

@@ -1,5 +1,18 @@
 local helpers = require("tests.helpers")
 
+--- Convert raw features to a flat input buffer suitable for algorithm.calculate_score()
+---@param raw_features table
+---@return number[]
+local function make_input_buf(raw_features)
+  local _scorer = require("neural-open.scorer")
+  local norm = _scorer.normalize_features(raw_features)
+  local buf = {}
+  for i, name in ipairs(_scorer.FEATURE_NAMES) do
+    buf[i] = norm[name] or 0
+  end
+  return buf
+end
+
 describe("trigram scoring integration", function()
   local scorer
   local neural_open
@@ -190,7 +203,8 @@ describe("trigram scoring integration", function()
         { is_open_buffer = false, is_alternate = false, virtual_name = "test_helpers.js" }
       )
       local normalized_features1 = scorer.normalize_features(raw_features1)
-      local score1 = algorithm.calculate_score(normalized_features1)
+      local input_buf1 = make_input_buf(raw_features1)
+      local score1 = algorithm.calculate_score(input_buf1)
 
       -- Compute features for second item
       local raw_features2 = scorer.compute_static_raw_features(
@@ -199,7 +213,8 @@ describe("trigram scoring integration", function()
         { is_open_buffer = false, is_alternate = false, virtual_name = "database.yml" }
       )
       local normalized_features2 = scorer.normalize_features(raw_features2)
-      local score2 = algorithm.calculate_score(normalized_features2)
+      local input_buf2 = make_input_buf(raw_features2)
+      local score2 = algorithm.calculate_score(input_buf2)
 
       -- Item1 should have higher score due to trigram similarity
       assert.is_true(score1 > score2)

@@ -137,7 +137,7 @@ function M.create_test_item(opts)
       is_open_buffer = is_open_buffer,
       is_alternate = is_alternate,
       raw_features = opts.raw_features or {},
-      normalized_features = opts.normalized_features or {},
+      input_buf = opts.input_buf or {},
       neural_score = opts.neural_score or 0,
       recent_rank = opts.recent_rank,
       virtual_name = opts.virtual_name,

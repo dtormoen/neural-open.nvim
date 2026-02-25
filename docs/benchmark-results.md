@@ -113,14 +113,14 @@ Per-keystroke:        111.96ms total |  1.120us/item
 ## Per-Keystroke Fast Path
 
 Eliminates all table allocations and hash lookups from the per-keystroke scoring
-hot path for the NN algorithm:
+hot path for all algorithms:
 
-- Pre-allocate flat `nn_input` buffer during transform phase with pre-normalized static features
+- Pre-allocate flat `input_buf` buffer during transform phase with pre-normalized static features
 - Per keystroke: update 3 dynamic features (match, virtual_name, frecency) inline with normalization
-- Pass flat buffer directly to `calculate_score_direct()` — no intermediate `normalized_features` table
+- Pass flat buffer directly to `calculate_score()` — no intermediate named-feature table
 - Cache transform closure creation (was re-created per item)
 - Cache `vim.fs.normalize` availability check and options table at module load (eliminates per-item pcall + table allocation)
-- Update weight-learning and debug paths to consume `nn_input` directly
+- Update weight-learning and debug paths to consume `input_buf` directly
 
 ```
 --- 1,000 files ---

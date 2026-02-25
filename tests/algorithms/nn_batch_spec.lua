@@ -355,42 +355,20 @@ describe("Neural Network Batch Processing", function()
       -- Fixed seed AFTER init (overrides os.time() seed) so ensure_weights() initializes deterministically
       math.randomseed(42)
 
-      local features1 = {
-        match = 0.8,
-        virtual_name = 0.2,
-        frecency = 0.5,
-        open = 1.0,
-        alt = 0.0,
-        proximity = 0.7,
-        project = 1.0,
-        recency = 0.3,
-        trigram = 0.6,
-        transition = 0.0,
-      }
-      local features2 = {
-        match = 0.3,
-        virtual_name = 0.9,
-        frecency = 0.2,
-        open = 0.0,
-        alt = 1.0,
-        proximity = 0.4,
-        project = 0.0,
-        recency = 0.8,
-        trigram = 0.1,
-        transition = 0.0,
-      }
+      local input_buf1 = { 0.8, 0.2, 0.5, 1.0, 0.0, 0.7, 1.0, 0.3, 0.6, 0.0 }
+      local input_buf2 = { 0.3, 0.9, 0.2, 0.0, 1.0, 0.4, 0.0, 0.8, 0.1, 0.0 }
 
       -- Calculate initial scores (triggers ensure_weights → deterministic random init)
-      local score1_before = nn_test.calculate_score(features1)
-      local score2_before = nn_test.calculate_score(features2)
+      local score1_before = nn_test.calculate_score(input_buf1)
+      local score2_before = nn_test.calculate_score(input_buf2)
 
       local selected_item = {
         file = "test1.lua",
-        nos = { normalized_features = features1 },
+        nos = { input_buf = input_buf1 },
       }
 
       local ranked_items = {
-        { file = "test2.lua", nos = { normalized_features = features2 } },
+        { file = "test2.lua", nos = { input_buf = input_buf2 } },
         selected_item,
       }
 
@@ -411,8 +389,8 @@ describe("Neural Network Batch Processing", function()
       nn_test.load_weights()
 
       -- Calculate scores after training
-      local score1_after = nn_test.calculate_score(features1)
-      local score2_after = nn_test.calculate_score(features2)
+      local score1_after = nn_test.calculate_score(input_buf1)
+      local score2_after = nn_test.calculate_score(input_buf2)
 
       -- Selected item should have higher score after training
       assert.is_true(

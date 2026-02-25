@@ -1,13 +1,27 @@
 --- Classic scoring algorithm with weighted features and self-learning
 local M = {}
 
+local scorer = require("neural-open.scorer")
+
 local config = {}
 local current_weights = nil
+local weight_buf = nil -- Positional weight array in FEATURE_NAMES order
 
 --- Get default weights for display purposes
 ---@return table
 local function get_default_weights()
   return require("neural-open.weights").get_default_weights("classic")
+end
+
+--- Rebuild positional weight_buf from named weights in FEATURE_NAMES order.
+--- Must only be called after current_weights has been assigned.
+local function rebuild_weight_buf()
+  local weights = current_weights --[[@as table]]
+  local FEATURE_NAMES = scorer.FEATURE_NAMES
+  weight_buf = {}
+  for i, name in ipairs(FEATURE_NAMES) do
+    weight_buf[i] = weights[name] or 0
+  end
 end
 
 --- Ensure weights are loaded and available
@@ -16,6 +30,7 @@ end
 local function ensure_weights(force_reload)
   if not current_weights or force_reload then
     current_weights = require("neural-open.weights").get_weights("classic")
+    rebuild_weight_buf()
   end
   return current_weights
 end
@@ -26,35 +41,33 @@ function M.init(algorithm_config)
   config = algorithm_config
 end
 
---- Calculate weighted score from normalized features
----@param normalized_features table<string, number>
+--- Calculate weighted score from a flat input buffer
+---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
 ---@return number
-function M.calculate_score(normalized_features)
-  local weights = ensure_weights()
-
-  local score = 0
-  for feature_name, normalized_value in pairs(normalized_features) do
-    if weights[feature_name] then
-      score = score + (normalized_value * weights[feature_name])
-    end
+function M.calculate_score(input_buf)
+  if not weight_buf then
+    ensure_weights()
   end
-
+  local wb = weight_buf --[[@as number[] ]]
+  local score = 0
+  for i = 1, #input_buf do
+    score = score + input_buf[i] * wb[i]
+  end
   return score
 end
 
---- Calculate weighted component scores from normalized features
----@param normalized_features table<string, number>
+--- Calculate weighted component scores from a flat input buffer
+---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
 ---@return table<string, number>
-local function calculate_components(normalized_features)
+local function calculate_components(input_buf)
   local weights = ensure_weights()
-
+  local FEATURE_NAMES = scorer.FEATURE_NAMES
   local components = {}
-  for feature_name, normalized_value in pairs(normalized_features) do
-    if weights[feature_name] then
-      components[feature_name] = normalized_value * weights[feature_name]
+  for i, name in ipairs(FEATURE_NAMES) do
+    if weights[name] then
+      components[name] = input_buf[i] * weights[name]
     end
   end
-
   return components
 end
 
@@ -84,20 +97,20 @@ local function calculate_adjustments(selected_item, ranked_items)
     adjustments[key] = 0
   end
 
-  -- Calculate components from normalized features
+  -- Calculate components from input buffer
   local selected_components = {}
-  if selected_item.nos and selected_item.nos.normalized_features then
-    selected_components = calculate_components(selected_item.nos.normalized_features)
+  if selected_item.nos and selected_item.nos.input_buf then
+    selected_components = calculate_components(selected_item.nos.input_buf)
   end
 
   -- Compare with all higher-ranked items
   for i = 1, selected_rank - 1 do
     local higher_item = ranked_items[i]
     if higher_item then
-      -- Calculate components from normalized features
+      -- Calculate components from input buffer
       local higher_components = {}
-      if higher_item.nos and higher_item.nos.normalized_features then
-        higher_components = calculate_components(higher_item.nos.normalized_features)
+      if higher_item.nos and higher_item.nos.input_buf then
+        higher_components = calculate_components(higher_item.nos.input_buf)
       end
 
       -- Check where selected item scored better
@@ -172,8 +185,9 @@ local function apply_adjustments(adjustments, apply)
   end
 
   if has_changes and apply then
-    -- Update internal state
+    -- Update internal state and rebuild positional weight buffer
     current_weights = new_weights
+    rebuild_weight_buf()
 
     -- Format changes for notification
     local formatted_changes = {}
@@ -260,9 +274,11 @@ function M.debug_view(item, all_items)
     local all_features =
       { "match", "virtual_name", "open", "alt", "proximity", "project", "frecency", "recency", "trigram", "transition" }
 
+    local normalized_features = item.nos.input_buf and scorer.input_buf_to_features(item.nos.input_buf) or {}
+
     for _, name in ipairs(all_features) do
       local raw_value = (item.nos.raw_features and item.nos.raw_features[name]) or 0
-      local normalized_value = (item.nos.normalized_features and item.nos.normalized_features[name]) or 0
+      local normalized_value = normalized_features[name] or 0
 
       local formatted_name = name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
       formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
@@ -277,8 +293,8 @@ function M.debug_view(item, all_items)
 
     -- Calculate components on-the-fly
     local components = {}
-    if item.nos.normalized_features then
-      components = calculate_components(item.nos.normalized_features)
+    if item.nos.input_buf then
+      components = calculate_components(item.nos.input_buf)
     end
 
     -- Create sorted list
@@ -298,7 +314,7 @@ function M.debug_view(item, all_items)
       local formatted_name = name:gsub("_", " "):gsub("(%l)(%u)", "%1 %2")
       formatted_name = formatted_name:sub(1, 1):upper() .. formatted_name:sub(2)
 
-      local normalized = item.nos.normalized_features and item.nos.normalized_features[name] or 0
+      local normalized = normalized_features[name] or 0
       local weight = weights[name] or 0
       local default_weights = get_default_weights()
       local default_weight = default_weights[name] or 0
@@ -394,7 +410,7 @@ end
 
 --- Load the latest weights from the weights module
 function M.load_weights()
-  ensure_weights(true)
+  ensure_weights(true) -- force_reload also rebuilds weight_buf
 end
 
 return M

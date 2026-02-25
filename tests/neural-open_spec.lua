@@ -2,6 +2,18 @@
 -- local spy = require("luassert.spy")
 local helpers = require("tests.helpers")
 
+--- Convert a named normalized features table into a flat input_buf array
+---@param normalized_features table<string, number>
+---@return number[]
+local function features_to_input_buf(normalized_features)
+  local scorer = require("neural-open.scorer")
+  local buf = {}
+  for i, name in ipairs(scorer.FEATURE_NAMES) do
+    buf[i] = normalized_features[name] or 0
+  end
+  return buf
+end
+
 describe("neural-open", function()
   local neural_open
   local scorer
@@ -236,7 +248,7 @@ describe("neural-open", function()
           nos = {
             normalized_path = "/test/file.lua",
             raw_features = {},
-            normalized_features = {},
+            input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
             ctx = {
               algorithm = classic,
               algorithm_name = "classic",
@@ -272,8 +284,8 @@ describe("neural-open", function()
 
         -- Frecency should be captured and normalized
         assert.equals(50, item.nos.raw_features.frecency)
-        -- Normalization: 1 - 1/(1+50/8) ≈ 0.862
-        assert.near(0.862, item.nos.normalized_features.frecency, 0.01)
+        -- Normalization: 1 - 1/(1+50/8) ≈ 0.862 (frecency is index 3 in input_buf)
+        assert.near(0.862, item.nos.input_buf[3], 0.01)
       end)
 
       it("should handle missing frecency gracefully", function()
@@ -288,7 +300,7 @@ describe("neural-open", function()
           nos = {
             normalized_path = "/test/file.lua",
             raw_features = {},
-            normalized_features = {},
+            input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
             ctx = {
               algorithm = classic,
               algorithm_name = "classic",
@@ -319,7 +331,8 @@ describe("neural-open", function()
 
         -- Should remain 0 if no frecency is provided by Snacks
         assert.equals(0, item.nos.raw_features.frecency)
-        assert.equals(0, item.nos.normalized_features.frecency)
+        -- Frecency is index 3 in input_buf
+        assert.equals(0, item.nos.input_buf[3])
       end)
     end)
   end)
@@ -381,7 +394,7 @@ describe("neural-open", function()
       local selected = {
         file = "/selected",
         neural_rank = 1,
-        nos = { normalized_features = { match = 1.0 } },
+        nos = { input_buf = features_to_input_buf({ match = 1.0 }) },
       }
       local ranked = { selected }
 
@@ -397,12 +410,12 @@ describe("neural-open", function()
         file = "/selected",
         neural_rank = 3,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0.5,
             proximity = 0.8,
             open = 0,
             frecency = 0.3,
-          },
+          }),
         },
       }
 
@@ -410,12 +423,12 @@ describe("neural-open", function()
         file = "/higher1",
         neural_rank = 1,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0.9,
             proximity = 0.2,
             open = 1.0,
             frecency = 0.1,
-          },
+          }),
         },
       }
 
@@ -423,12 +436,12 @@ describe("neural-open", function()
         file = "/higher2",
         neural_rank = 2,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0.7,
             proximity = 0.3,
             open = 0,
             frecency = 0.2,
-          },
+          }),
         },
       }
 
@@ -463,12 +476,12 @@ describe("neural-open", function()
         file = "/selected",
         neural_rank = 2,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0,
             proximity = 1.0,
             open = 0,
             frecency = 0,
-          },
+          }),
         },
       }
 
@@ -476,12 +489,12 @@ describe("neural-open", function()
         file = "/higher",
         neural_rank = 1,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 1.0,
             proximity = 0,
             open = 1.0,
             frecency = 0,
-          },
+          }),
         },
       }
 
@@ -515,12 +528,12 @@ describe("neural-open", function()
         file = "/selected_high",
         neural_rank = 2,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 1.0,
             proximity = 0,
             open = 0,
             frecency = 0,
-          },
+          }),
         },
       }
 
@@ -528,12 +541,12 @@ describe("neural-open", function()
         file = "/higher_high",
         neural_rank = 1,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0,
             proximity = 0,
             open = 0,
             frecency = 0,
-          },
+          }),
         },
       }
 
@@ -541,12 +554,12 @@ describe("neural-open", function()
         file = "/selected_low",
         neural_rank = 2,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0,
             proximity = 0,
             open = 0,
             frecency = 0,
-          },
+          }),
         },
       }
 
@@ -554,12 +567,12 @@ describe("neural-open", function()
         file = "/higher_low",
         neural_rank = 1,
         nos = {
-          normalized_features = {
+          input_buf = features_to_input_buf({
             match = 0,
             proximity = 1.0,
             open = 0,
             frecency = 0,
-          },
+          }),
         },
       }
 

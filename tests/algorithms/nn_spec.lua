@@ -1,12 +1,21 @@
 describe("Neural Network Algorithm", function()
   local nn
+  local scorer = require("neural-open.scorer")
+
+  local function features_to_input_buf(features)
+    local buf = {}
+    for i, name in ipairs(scorer.FEATURE_NAMES) do
+      buf[i] = features[name] or 0
+    end
+    return buf
+  end
 
   local function create_mock_item(file, features, score)
     return {
       file = file,
       score = score or 0,
       nos = {
-        normalized_features = features,
+        input_buf = features_to_input_buf(features),
         neural_score = score or 0,
       },
     }
@@ -45,20 +54,9 @@ describe("Neural Network Algorithm", function()
     end)
 
     it("calculates scores from normalized features", function()
-      local features = {
-        match = 0.8,
-        virtual_name = 0.5,
-        frecency = 0.3,
-        open = 1.0,
-        alt = 0.0,
-        proximity = 0.6,
-        project = 1.0,
-        recency = 0.4,
-        trigram = 0.7,
-        transition = 0.0,
-      }
+      local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0 }
 
-      local score = nn.calculate_score(features)
+      local score = nn.calculate_score(input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0)
       assert.is_true(score <= 100)
@@ -76,34 +74,11 @@ describe("Neural Network Algorithm", function()
       })
       nn.init(test_config.algorithm_config.nn)
 
-      local features1 = {
-        match = 0.9,
-        virtual_name = 0.0,
-        frecency = 0.0,
-        open = 0.0,
-        alt = 0.0,
-        proximity = 0.0,
-        project = 0.0,
-        recency = 0.0,
-        trigram = 0.0,
-        transition = 0.0,
-      }
+      local input_buf1 = { 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }
+      local input_buf2 = { 0.1, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0 }
 
-      local features2 = {
-        match = 0.1,
-        virtual_name = 0.0,
-        frecency = 0.0,
-        open = 1.0,
-        alt = 1.0,
-        proximity = 1.0,
-        project = 1.0,
-        recency = 1.0,
-        trigram = 1.0,
-        transition = 0.0,
-      }
-
-      local score1 = nn.calculate_score(features1)
-      local score2 = nn.calculate_score(features2)
+      local score1 = nn.calculate_score(input_buf1)
+      local score2 = nn.calculate_score(input_buf2)
 
       -- With batch norm, initial scores might be similar but should differ after proper initialization
       -- Allow for small differences due to numerical precision
@@ -113,13 +88,10 @@ describe("Neural Network Algorithm", function()
       )
     end)
 
-    it("handles missing features gracefully", function()
-      local features = {
-        match = 0.5,
-        -- Missing other features
-      }
+    it("handles sparse input gracefully", function()
+      local input_buf = { 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 
-      local score = nn.calculate_score(features)
+      local score = nn.calculate_score(input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0)
     end)
@@ -566,7 +538,7 @@ describe("Neural Network Algorithm", function()
 
       -- Verify selected_item has required fields
       assert.is_not_nil(selected_item.nos, "Selected item should have nos field")
-      assert.is_not_nil(selected_item.nos.normalized_features, "Selected item should have normalized_features")
+      assert.is_not_nil(selected_item.nos.input_buf, "Selected item should have input_buf")
       assert.equals("selected.lua", selected_item.file, "Selected item should have correct file name")
 
       nn.update_weights(selected_item, ranked_items)
@@ -829,23 +801,12 @@ describe("Neural Network Algorithm", function()
       )
       nn.init(config.algorithm_config.nn)
 
-      local features = {
-        match = 0.8,
-        virtual_name = 0.5,
-        frecency = 0.3,
-        open = 1.0,
-        alt = 0.0,
-        proximity = 0.6,
-        project = 1.0,
-        recency = 0.4,
-        trigram = 0.7,
-        transition = 0.0,
-      }
+      local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0 }
 
       -- Calculate scores multiple times - should be deterministic in inference
-      local score1 = nn.calculate_score(features)
-      local score2 = nn.calculate_score(features)
-      local score3 = nn.calculate_score(features)
+      local score1 = nn.calculate_score(input_buf)
+      local score2 = nn.calculate_score(input_buf)
+      local score3 = nn.calculate_score(input_buf)
 
       -- In inference mode (no dropout), scores should be identical
       assert.equals(score1, score2)
@@ -1238,7 +1199,7 @@ describe("Neural Network Algorithm", function()
       assert.is_not_nil(saved_state.nn.network)
 
       -- Calculate score with trained state
-      local score1 = nn.calculate_score(item.nos.normalized_features)
+      local score1 = nn.calculate_score(item.nos.input_buf)
 
       -- Reset the module and reload through production pathway
       package.loaded["neural-open.algorithms.nn"] = nil
@@ -1249,7 +1210,7 @@ describe("Neural Network Algorithm", function()
       nn.load_weights() -- This should load from the mock
 
       -- Calculate score with loaded state
-      local score2 = nn.calculate_score(item.nos.normalized_features)
+      local score2 = nn.calculate_score(item.nos.input_buf)
 
       -- Scores should be the same
       assert.is_true(math.abs(score1 - score2) < 0.001)
@@ -1515,18 +1476,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.5,
-          normalized_features = {
-            match = 0.8,
-            virtual_name = 0.2,
-            frecency = 0.3,
-            open = 1.0,
-            alt = 0.0,
-            proximity = 0.6,
-            project = 1.0,
-            recency = 0.4,
-            trigram = 0.5,
-            transition = 0.0,
-          },
+          input_buf = { 0.8, 0.2, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.5, 0.0 },
         },
       }
 
@@ -1570,18 +1520,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.5,
-          normalized_features = {
-            match = 0.8,
-            virtual_name = 0.2,
-            frecency = 0.3,
-            open = 1.0,
-            alt = 0.0,
-            proximity = 0.6,
-            project = 1.0,
-            recency = 0.4,
-            trigram = 0.5,
-            transition = 0.0,
-          },
+          input_buf = { 0.8, 0.2, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.5, 0.0 },
         },
       }
 
@@ -1621,18 +1560,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.0,
-          normalized_features = {
-            match = 0.5,
-            virtual_name = 0.5,
-            frecency = 0.5,
-            open = 0.5,
-            alt = 0.5,
-            proximity = 0.5,
-            project = 0.5,
-            recency = 0.5,
-            trigram = 0.5,
-            transition = 0.0,
-          },
+          input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 },
         },
       }
 
@@ -2010,21 +1938,10 @@ describe("Neural Network Algorithm", function()
       )
       nn.init(config.algorithm_config.nn)
 
-      local features = {
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0.5,
-        alt = 0.5,
-        proximity = 0.5,
-        project = 0.5,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      }
+      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 }
 
       -- Should load without error and default to SGD
-      local score = nn.calculate_score(features)
+      local score = nn.calculate_score(input_buf)
       assert.is_number(score)
     end)
 
@@ -2074,19 +1991,8 @@ describe("Neural Network Algorithm", function()
       nn.init(config.algorithm_config.nn)
 
       -- Trigger weight loading by calculating a score
-      local features = {
-        match = 0.5,
-        virtual_name = 0.5,
-        frecency = 0.5,
-        open = 0.5,
-        alt = 0.5,
-        proximity = 0.5,
-        project = 0.5,
-        recency = 0.5,
-        trigram = 0.5,
-        transition = 0.0,
-      }
-      nn.calculate_score(features)
+      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 }
+      nn.calculate_score(input_buf)
 
       -- Should have notified about optimizer change
       assert.is_true(notify_called)
@@ -2361,7 +2267,7 @@ describe("Neural Network Algorithm", function()
       nn.init(config_adamw.algorithm_config.nn)
 
       -- Calculate score with original weights (should load from saved)
-      local score1 = nn.calculate_score(selected_item.nos.normalized_features)
+      local score1 = nn.calculate_score(selected_item.nos.input_buf)
 
       -- Reset and use saved SGD weights but with AdamW
       package.loaded["neural-open.algorithms.nn"] = nil
@@ -2382,7 +2288,7 @@ describe("Neural Network Algorithm", function()
       -- Force reload
       nn.load_weights()
 
-      local score2 = nn.calculate_score(selected_item.nos.normalized_features)
+      local score2 = nn.calculate_score(selected_item.nos.input_buf)
 
       -- Scores should be close since weights are preserved
       assert.is_true(math.abs(score1 - score2) < 1.0, "Weights should be preserved when switching optimizers")
@@ -2434,7 +2340,7 @@ describe("Neural Network Algorithm", function()
       nn.update_weights(item1, { item2, item1 })
 
       -- Verify weights were updated (basic sanity check)
-      local score_after = nn.calculate_score(item1.nos.normalized_features)
+      local score_after = nn.calculate_score(item1.nos.input_buf)
       assert.is_number(score_after)
     end)
 
@@ -2466,7 +2372,7 @@ describe("Neural Network Algorithm", function()
       nn.update_weights(item, { item })
 
       -- Score should still be calculated correctly
-      local score = nn.calculate_score(item.nos.normalized_features)
+      local score = nn.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2501,7 +2407,7 @@ describe("Neural Network Algorithm", function()
       nn.update_weights(item, { item })
 
       -- Score should still be calculated correctly
-      local score = nn.calculate_score(item.nos.normalized_features)
+      local score = nn.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2528,7 +2434,7 @@ describe("Neural Network Algorithm", function()
       -- Should work normally without warmup
       nn.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.normalized_features)
+      local score = nn.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2557,7 +2463,7 @@ describe("Neural Network Algorithm", function()
       -- Should work with default warmup settings (disabled)
       nn.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.normalized_features)
+      local score = nn.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2654,23 +2560,12 @@ describe("Neural Network Algorithm", function()
       )
       nn.init(config.algorithm_config.nn)
 
-      local features = {
-        match = 0.8,
-        virtual_name = 0.7,
-        frecency = 0.3,
-        open = 0.0,
-        alt = 0.0,
-        proximity = 0.4,
-        project = 1.0,
-        recency = 0.2,
-        trigram = 0.5,
-        transition = 0.0,
-      }
+      local input_buf = { 0.8, 0.7, 0.3, 0.0, 0.0, 0.4, 1.0, 0.2, 0.5, 0.0 }
 
       -- Calculate scores multiple times - should be deterministic in inference
-      local score1 = nn.calculate_score(features)
-      local score2 = nn.calculate_score(features)
-      local score3 = nn.calculate_score(features)
+      local score1 = nn.calculate_score(input_buf)
+      local score2 = nn.calculate_score(input_buf)
+      local score3 = nn.calculate_score(input_buf)
 
       -- In inference mode (no dropout), scores should be identical
       assert.equals(score1, score2)
@@ -2733,8 +2628,8 @@ describe("Neural Network Algorithm", function()
 
       -- After training, the network should score selected_item higher
       -- even when match features are available during inference
-      local score_selected = nn.calculate_score(selected_item.nos.normalized_features)
-      local score_decoy = nn.calculate_score(decoy_item.nos.normalized_features)
+      local score_selected = nn.calculate_score(selected_item.nos.input_buf)
+      local score_decoy = nn.calculate_score(decoy_item.nos.input_buf)
 
       -- The network should have learned to rely on non-match features
       assert.is_number(score_selected)
@@ -2771,7 +2666,7 @@ describe("Neural Network Algorithm", function()
       -- Should work normally without match dropout
       nn.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.normalized_features)
+      local score = nn.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2802,7 +2697,7 @@ describe("Neural Network Algorithm", function()
       -- Should use default match_dropout value (0.25)
       nn.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.normalized_features)
+      local score = nn.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2822,18 +2717,7 @@ describe("Neural Network Algorithm", function()
         file = "test.lua",
         nos = {
           neural_score = 5.0,
-          normalized_features = {
-            match = 0.5,
-            virtual_name = 0.5,
-            frecency = 0.5,
-            open = 0.5,
-            alt = 0.5,
-            proximity = 0.5,
-            project = 0.5,
-            recency = 0.5,
-            trigram = 0.5,
-            transition = 0.0,
-          },
+          input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0 },
         },
       }
 
@@ -2865,35 +2749,12 @@ describe("Neural Network Algorithm", function()
       nn.init(config.algorithm_config.nn)
 
       -- Test with features that would cause dead neurons with regular ReLU
-      local negative_features = {
-        match = 0.0,
-        virtual_name = 0.0,
-        frecency = 0.0,
-        open = 0.0,
-        alt = 0.0,
-        proximity = 0.0,
-        project = 0.0,
-        recency = 0.0,
-        trigram = 0.0,
-        transition = 0.0,
-      }
-
-      local positive_features = {
-        match = 1.0,
-        virtual_name = 1.0,
-        frecency = 1.0,
-        open = 1.0,
-        alt = 1.0,
-        proximity = 1.0,
-        project = 1.0,
-        recency = 1.0,
-        trigram = 1.0,
-        transition = 0.0,
-      }
+      local negative_buf = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }
+      local positive_buf = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0 }
 
       -- Calculate scores - with leaky ReLU, even all-zero inputs should produce non-zero output
-      local score_neg = nn.calculate_score(negative_features)
-      local score_pos = nn.calculate_score(positive_features)
+      local score_neg = nn.calculate_score(negative_buf)
+      local score_pos = nn.calculate_score(positive_buf)
 
       -- Both scores should be valid
       assert.is_number(score_neg)
@@ -2959,8 +2820,8 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Initial scores
-      local score1_before = nn.calculate_score(item1.nos.normalized_features)
-      local score2_before = nn.calculate_score(item2.nos.normalized_features)
+      local score1_before = nn.calculate_score(item1.nos.input_buf)
+      local score2_before = nn.calculate_score(item2.nos.input_buf)
 
       -- Train multiple times
       for _ = 1, 5 do
@@ -2968,8 +2829,8 @@ describe("Neural Network Algorithm", function()
       end
 
       -- Scores after training
-      local score1_after = nn.calculate_score(item1.nos.normalized_features)
-      local score2_after = nn.calculate_score(item2.nos.normalized_features)
+      local score1_after = nn.calculate_score(item1.nos.input_buf)
+      local score2_after = nn.calculate_score(item2.nos.input_buf)
 
       -- Verify that learning occurred (scores changed)
       assert.are_not.equal(score1_before, score1_after, "Score for item1 should change after training")
@@ -3009,24 +2870,13 @@ describe("Neural Network Algorithm", function()
         )
         nn.init(config.algorithm_config.nn)
 
-        local features = {
-          match = 0.75,
-          virtual_name = 0.3,
-          frecency = 0.5,
-          open = 1.0,
-          alt = 0.0,
-          proximity = 0.6,
-          project = 1.0,
-          recency = 0.4,
-          trigram = 0.8,
-          transition = 0.2,
-        }
+        local input_buf = { 0.75, 0.3, 0.5, 1.0, 0.0, 0.6, 1.0, 0.4, 0.8, 0.2 }
 
         -- Get fast path score via calculate_score
-        local fast_score = nn.calculate_score(features)
+        local fast_score = nn.calculate_score(input_buf)
 
         -- Get reference score via general forward_pass
-        local input = nn._features_to_input(features, false)
+        local input = nn._features_to_input(input_buf, false)
         local activations = nn._forward_pass(input)
         local reference_score = activations[#activations][1][1] * 100
 
@@ -3068,7 +2918,10 @@ describe("Neural Network Algorithm", function()
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
-      local features = {
+      local input_buf = { 0.6, 0.4, 0.3, 0.0, 1.0, 0.5, 1.0, 0.7, 0.2, 0.1 }
+
+      -- Train the network to modify weights
+      local selected = create_mock_item("selected.lua", {
         match = 0.6,
         virtual_name = 0.4,
         frecency = 0.3,
@@ -3079,10 +2932,7 @@ describe("Neural Network Algorithm", function()
         recency = 0.7,
         trigram = 0.2,
         transition = 0.1,
-      }
-
-      -- Train the network to modify weights
-      local selected = create_mock_item("selected.lua", features)
+      })
       local other = create_mock_item("other.lua", {
         match = 0.9,
         virtual_name = 0.0,
@@ -3098,8 +2948,8 @@ describe("Neural Network Algorithm", function()
       nn.update_weights(selected, { other, selected })
 
       -- After training, fast path should still match reference
-      local fast_score = nn.calculate_score(features)
-      local input = nn._features_to_input(features, false)
+      local fast_score = nn.calculate_score(input_buf)
+      local input = nn._features_to_input(input_buf, false)
       local activations = nn._forward_pass(input)
       local reference_score = activations[#activations][1][1] * 100
 

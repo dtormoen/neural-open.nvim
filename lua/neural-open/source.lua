@@ -148,27 +148,24 @@ function M.create_neural_transform(config, scorer, opts)
       virtual_name = virtual_name,
     })
 
-    -- Pre-allocate nn_input buffer with normalized static features for NN fast path.
+    -- Pre-allocate input_buf with normalized static features for all algorithms.
     -- Dynamic features (match, virtual_name, frecency) are filled per-keystroke in on_match_handler.
-    local nn_input = nil
-    if nos_ctx.algorithm and nos_ctx.algorithm.get_name and nos_ctx.algorithm.get_name() == "nn" then
-      local recency_val = 0
-      if recent_rank and recent_rank > 0 then
-        recency_val = scorer.calculate_recency_score(recent_rank)
-      end
-      nn_input = {
-        0, -- [1] match (dynamic)
-        0, -- [2] virtual_name (dynamic)
-        0, -- [3] frecency (dynamic)
-        is_open_buffer and 1 or 0, -- [4] open
-        is_alternate and 1 or 0, -- [5] alt
-        raw_features.proximity, -- [6] proximity (already [0,1])
-        raw_features.project, -- [7] project (already 0/1)
-        recency_val, -- [8] recency (normalized)
-        raw_features.trigram, -- [9] trigram (already [0,1])
-        raw_features.transition, -- [10] transition (already [0,1])
-      }
+    local recency_val = 0
+    if recent_rank and recent_rank > 0 then
+      recency_val = scorer.calculate_recency_score(recent_rank)
     end
+    local input_buf = {
+      0, -- [1] match (dynamic)
+      0, -- [2] virtual_name (dynamic)
+      0, -- [3] frecency (dynamic)
+      is_open_buffer and 1 or 0, -- [4] open
+      is_alternate and 1 or 0, -- [5] alt
+      raw_features.proximity, -- [6] proximity (already [0,1])
+      raw_features.project, -- [7] project (already 0/1)
+      recency_val, -- [8] recency (normalized)
+      raw_features.trigram, -- [9] trigram (already [0,1])
+      raw_features.transition, -- [10] transition (already [0,1])
+    }
 
     -- Initialize the nos field structure with all per-item data
     item.nos = {
@@ -183,15 +180,14 @@ function M.create_neural_transform(config, scorer, opts)
       -- Recent file data
       recent_rank = recent_rank,
 
-      -- NN fast-path input buffer
-      nn_input = nn_input,
+      -- Pre-allocated flat input buffer for all algorithms
+      input_buf = input_buf,
 
       -- Reference to shared context
       ctx = nos_ctx,
 
-      -- Initialize feature structures (will be populated later)
+      -- Raw features (will be updated per-keystroke for dynamic features)
       raw_features = raw_features,
-      normalized_features = {},
       neural_score = 0,
     }
 

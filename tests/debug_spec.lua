@@ -55,6 +55,7 @@ describe("debug module", function()
     classic.load_weights()
 
     -- Create a comprehensive test item with all features
+    -- input_buf order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
     item_with_full_data = {
       file = "/test/file.lua",
       text = "file.lua",
@@ -71,16 +72,7 @@ describe("debug module", function()
           frecency = 15.0,
           recency = 3.0,
         },
-        normalized_features = {
-          match = 0.8500,
-          virtual_name = 0.4200,
-          open = 1.0000,
-          alt = 1.0000,
-          proximity = 0.8000,
-          project = 1.0000,
-          frecency = 0.9375,
-          recency = 0.5333,
-        },
+        input_buf = { 0.8500, 0.4200, 0.9375, 1.0000, 1.0000, 0.8000, 1.0000, 0.5333, 0, 0 },
         is_open_buffer = true,
         is_alternate = true,
         recent_rank = 2,
@@ -91,6 +83,7 @@ describe("debug module", function()
     }
 
     -- Create item with partial data (zeros for some features)
+    -- input_buf order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
     item_with_partial_data = {
       file = "/test/another.lua",
       text = "another.lua",
@@ -107,16 +100,7 @@ describe("debug module", function()
           frecency = 0,
           recency = 0,
         },
-        normalized_features = {
-          match = 0.7500,
-          virtual_name = 0,
-          open = 0,
-          alt = 0,
-          proximity = 0.5000,
-          project = 1.0000,
-          frecency = 0,
-          recency = 0,
-        },
+        input_buf = { 0.7500, 0, 0, 0, 0, 0.5000, 1.0000, 0, 0, 0 },
         ctx = {
           algorithm = classic, -- Add algorithm to context
         },

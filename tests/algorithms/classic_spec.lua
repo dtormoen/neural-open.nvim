@@ -45,49 +45,42 @@ describe("classic algorithm", function()
   end)
 
   describe("calculate_score", function()
+    -- Flat array order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
+
     it("should calculate weighted sum of features", function()
-      local features = {
-        match = 0.8,
-        frecency = 0.5,
-        proximity = 0.3,
-        recency = 0.2,
-      }
+      -- match=0.8, virtual_name=0, frecency=0.5, open=0, alt=0, proximity=0.3, project=0, recency=0.2, trigram=0, transition=0
+      local input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0.2, 0, 0 }
 
       -- Expected: 0.8*140 + 0.5*17 + 0.3*13 + 0.2*9 = 112 + 8.5 + 3.9 + 1.8 = 126.2
-      local score = classic.calculate_score(features)
+      local score = classic.calculate_score(input_buf)
       assert.are.equal(126.2, score)
     end)
 
     it("should handle zero values", function()
-      local features = {
-        match = 0.8,
-        frecency = 0,
-        proximity = 0,
-        recency = 0.2,
-      }
+      -- match=0.8, virtual_name=0, frecency=0, open=0, alt=0, proximity=0, project=0, recency=0.2, trigram=0, transition=0
+      local input_buf = { 0.8, 0, 0, 0, 0, 0, 0, 0.2, 0, 0 }
 
       -- Expected: 0.8*140 + 0*17 + 0*13 + 0.2*9 = 112 + 0 + 0 + 1.8 = 113.8
-      local score = classic.calculate_score(features)
+      local score = classic.calculate_score(input_buf)
       assert.are.equal(113.8, score)
     end)
 
-    it("should handle missing features", function()
-      local features = {
-        match = 0.8,
-      }
+    it("should handle all-zero features", function()
+      local input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 
-      -- Expected: 0.8*140 = 112
-      local score = classic.calculate_score(features)
-      assert.are.equal(112, score)
+      -- Expected: 0
+      local score = classic.calculate_score(input_buf)
+      assert.are.equal(0, score)
     end)
   end)
 
   describe("update_weights", function()
     it("should not update weights when item is rank 1", function()
+      -- Flat array: match=0.8, rest zeros
       local selected_item = {
         neural_rank = 1,
         nos = {
-          normalized_features = { match = 0.8 },
+          input_buf = { 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         },
       }
       local ranked_items = { selected_item }
@@ -100,27 +93,18 @@ describe("classic algorithm", function()
     end)
 
     it("should update weights when selecting lower-ranked item", function()
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
       local selected_item = {
         neural_rank = 2,
         nos = {
-          normalized_features = {
-            match = 0.8,
-            frecency = 0.5,
-            proximity = 0.3,
-            recency = 0.2,
-          },
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0.2, 0, 0 },
         },
       }
 
       local higher_item = {
         neural_rank = 1,
         nos = {
-          normalized_features = {
-            match = 0.7, -- Lower match score
-            frecency = 0.6, -- Higher frecency
-            proximity = 0.3, -- Same proximity
-            recency = 0.1, -- Lower recency
-          },
+          input_buf = { 0.7, 0, 0.6, 0, 0, 0.3, 0, 0.1, 0, 0 },
         },
       }
 
@@ -138,23 +122,18 @@ describe("classic algorithm", function()
 
   describe("simulate_weight_adjustments", function()
     it("should simulate without applying changes", function()
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
       local selected_item = {
         neural_rank = 2,
         nos = {
-          normalized_features = {
-            match = 0.8,
-            frecency = 0.5,
-          },
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0, 0, 0, 0, 0 },
         },
       }
 
       local higher_item = {
         neural_rank = 1,
         nos = {
-          normalized_features = {
-            match = 0.7,
-            frecency = 0.6,
-          },
+          input_buf = { 0.7, 0, 0.6, 0, 0, 0, 0, 0, 0, 0 },
         },
       }
 
@@ -175,6 +154,7 @@ describe("classic algorithm", function()
 
   describe("debug_view", function()
     it("should return detailed debug information", function()
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
       local item = {
         nos = {
           neural_score = 129,
@@ -182,10 +162,7 @@ describe("classic algorithm", function()
             match = 80,
             frecency = 25,
           },
-          normalized_features = {
-            match = 0.8,
-            frecency = 0.5,
-          },
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0, 0, 0, 0, 0 },
         },
       }
 
@@ -201,6 +178,7 @@ describe("classic algorithm", function()
     end)
 
     it("should display transition feature in debug output", function()
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
       local item = {
         nos = {
           neural_score = 100,
@@ -209,11 +187,7 @@ describe("classic algorithm", function()
             frecency = 25,
             transition = 0.5,
           },
-          normalized_features = {
-            match = 0.8,
-            frecency = 0.5,
-            transition = 0.5,
-          },
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0, 0, 0, 0, 0.5 },
         },
       }
 

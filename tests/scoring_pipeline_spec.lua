@@ -4,9 +4,18 @@ describe("scoring pipeline regression", function()
   local scorer
   local nn
 
-  -- Feature order expected by nn.calculate_score (must match features_to_input)
+  -- Feature order must match scorer.FEATURE_NAMES
   local FEATURE_ORDER =
     { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+
+  --- Convert named normalized features to flat array in FEATURE_ORDER
+  local function features_to_flat(norm)
+    local buf = {}
+    for i, name in ipairs(FEATURE_ORDER) do
+      buf[i] = norm[name] or 0
+    end
+    return buf
+  end
 
   before_each(function()
     helpers.clear_plugin_modules()
@@ -180,8 +189,9 @@ describe("scoring pipeline regression", function()
       }
 
       local norm = scorer.normalize_features(raw)
-      local score1 = nn.calculate_score(norm)
-      local score2 = nn.calculate_score(norm)
+      local input_buf = features_to_flat(norm)
+      local score1 = nn.calculate_score(input_buf)
+      local score2 = nn.calculate_score(input_buf)
 
       assert.is_number(score1)
       assert.equals(score1, score2)
@@ -202,14 +212,15 @@ describe("scoring pipeline regression", function()
       }
 
       local norm = scorer.normalize_features(raw)
-      local score = nn.calculate_score(norm)
+      local input_buf = features_to_flat(norm)
+      local score = nn.calculate_score(input_buf)
 
       assert.is_true(score >= 0, "score should be >= 0, got " .. score)
       assert.is_true(score <= 100, "score should be <= 100, got " .. score)
     end)
   end)
 
-  describe("nn_input equivalence", function()
+  describe("input_buf equivalence", function()
     it("flat array indices match named normalized_features in FEATURE_ORDER", function()
       local raw = {
         match = 120,
@@ -249,8 +260,8 @@ describe("scoring pipeline regression", function()
     end)
   end)
 
-  describe("calculate_score_direct equivalence", function()
-    it("produces identical score to normalize + calculate_score", function()
+  describe("calculate_score with flat array", function()
+    it("produces consistent scores from normalized features", function()
       local raw = {
         match = 150,
         virtual_name = 80,
@@ -264,12 +275,9 @@ describe("scoring pipeline regression", function()
         transition = 0.1,
       }
 
-      -- Standard path
+      -- Build input_buf from normalized features
       local norm = scorer.normalize_features(raw)
-      local standard_score = nn.calculate_score(norm)
-
-      -- Fast path: build nn_input the same way source.lua does
-      local nn_input = {
+      local input_buf = {
         norm.match,
         norm.virtual_name,
         norm.frecency,
@@ -281,9 +289,13 @@ describe("scoring pipeline regression", function()
         norm.trigram,
         norm.transition,
       }
-      local direct_score = nn.calculate_score_direct(nn_input)
+      local score = nn.calculate_score(input_buf)
 
-      assert.are.near(standard_score, direct_score, 1e-10)
+      -- Build the same input_buf via the helper and verify identical result
+      local input_buf2 = features_to_flat(norm)
+      local score2 = nn.calculate_score(input_buf2)
+
+      assert.are.near(score, score2, 1e-10)
     end)
   end)
 end)

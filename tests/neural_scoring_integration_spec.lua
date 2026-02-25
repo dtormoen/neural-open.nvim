@@ -2,6 +2,19 @@
 -- local spy = require("luassert.spy")
 local helpers = require("tests.helpers")
 
+--- Convert raw features to a flat input buffer suitable for algorithm.calculate_score()
+---@param raw_features table
+---@return number[]
+local function make_input_buf(raw_features)
+  local scorer = require("neural-open.scorer")
+  local norm = scorer.normalize_features(raw_features)
+  local buf = {}
+  for i, name in ipairs(scorer.FEATURE_NAMES) do
+    buf[i] = norm[name] or 0
+  end
+  return buf
+end
+
 describe("neural scoring integration", function()
   local neural_open
   local scorer
@@ -44,25 +57,26 @@ describe("neural scoring integration", function()
             recency = 0,
             trigram = 0,
           },
-          normalized_features = {},
+          input_buf = {},
           ctx = { cwd = "/path" },
         },
       }
 
-      -- Normalize features as would be done by on_match_handler
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      -- Build input_buf as would be done by on_match_handler
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
 
-      -- Check that the features were set correctly
-      assert.is_not_nil(item.nos.normalized_features)
-      assert.is_not_nil(item.nos.normalized_features.open)
-      assert.equals(1, item.nos.normalized_features.open) -- open buffer should have normalized value of 1
-      assert.is_not_nil(item.nos.normalized_features.alt)
-      assert.equals(1, item.nos.normalized_features.alt) -- alternate buffer should have normalized value of 1
+      -- Check that features were set correctly via conversion back to named table
+      local norm = scorer.input_buf_to_features(item.nos.input_buf)
+      assert.is_not_nil(norm)
+      assert.is_not_nil(norm.open)
+      assert.equals(1, norm.open) -- open buffer should have normalized value of 1
+      assert.is_not_nil(norm.alt)
+      assert.equals(1, norm.alt) -- alternate buffer should have normalized value of 1
 
       -- Calculate score using algorithm
       local registry = require("neural-open.algorithms.registry")
       local algorithm = registry.get_algorithm()
-      local neural_score = algorithm.calculate_score(item.nos.normalized_features)
+      local neural_score = algorithm.calculate_score(item.nos.input_buf)
 
       -- Check that neural score was calculated and includes buffer bonuses
       assert.is_not_nil(neural_score)
@@ -87,20 +101,21 @@ describe("neural scoring integration", function()
             recency = 0,
             trigram = 0,
           },
-          normalized_features = {},
+          input_buf = {},
           ctx = { cwd = "/path", query = "file" },
         },
         fuzzy_score = 0.8, -- This should be ignored
       }
 
-      -- Normalize features as would be done by on_match_handler
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      -- Build input_buf as would be done by on_match_handler
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
 
       -- Verify that features were normalized but don't calculate components
       -- since that function was removed (now internal to algorithms)
-      assert.is_not_nil(item.nos.normalized_features)
+      local norm = scorer.input_buf_to_features(item.nos.input_buf)
+      assert.is_not_nil(norm)
       -- Should not have path_match in normalized features since we handle fuzzy matching in Snacks
-      assert.is_nil(item.nos.normalized_features.path_match)
+      assert.is_nil(norm.path_match)
     end)
   end)
 
@@ -125,7 +140,7 @@ describe("neural scoring integration", function()
             recency = 0,
             trigram = 0,
           },
-          normalized_features = {},
+          input_buf = {},
           ctx = {
             cwd = "/test",
             current_file = "/test/other.lua",
@@ -134,11 +149,11 @@ describe("neural scoring integration", function()
         },
       }
 
-      -- Normalize features and calculate score as on_match_handler would
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      -- Build input_buf and calculate score as on_match_handler would
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
       local registry = require("neural-open.algorithms.registry")
       local algorithm = registry.get_algorithm()
-      local score = algorithm.calculate_score(item.nos.normalized_features)
+      local score = algorithm.calculate_score(item.nos.input_buf)
 
       -- Verify score is calculated
       assert.is_true(score > 0)
@@ -176,17 +191,17 @@ describe("neural scoring integration", function()
             recency = 0,
             trigram = 0,
           },
-          normalized_features = {},
+          input_buf = {},
           ctx = { cwd = "/path" },
         },
       }
 
       -- Calculate base score
       neural_open.config.score_balance = 1.0
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
       local registry = require("neural-open.algorithms.registry")
       local algorithm = registry.get_algorithm()
-      local base_score = algorithm.calculate_score(item.nos.normalized_features)
+      local base_score = algorithm.calculate_score(item.nos.input_buf)
 
       -- Calculate with balance
       neural_open.config.score_balance = 0.5
@@ -218,15 +233,15 @@ describe("neural scoring integration", function()
             recency = 0,
             trigram = 0,
           },
-          normalized_features = {},
+          input_buf = {},
           ctx = { cwd = "/path" },
         },
       }
 
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
       local registry = require("neural-open.algorithms.registry")
       local algorithm = registry.get_algorithm()
-      local score = algorithm.calculate_score(item.nos.normalized_features)
+      local score = algorithm.calculate_score(item.nos.input_buf)
       local balanced = score * neural_open.config.score_balance
 
       assert.equals(0, balanced)
@@ -246,7 +261,7 @@ describe("neural scoring integration", function()
           is_open_buffer = false,
           is_alternate = false,
           raw_features = {},
-          normalized_features = {},
+          input_buf = {},
         },
       }
 
@@ -265,16 +280,16 @@ describe("neural scoring integration", function()
         recency = 0,
         trigram = 0,
       }
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
       local registry = require("neural-open.algorithms.registry")
       local algorithm = registry.get_algorithm()
-      local score1 = algorithm.calculate_score(item.nos.normalized_features)
-      cache[item.file] = { score = score1, features = item.nos.normalized_features }
+      local score1 = algorithm.calculate_score(item.nos.input_buf)
+      cache[item.file] = { score = score1, input_buf = item.nos.input_buf }
 
       -- Cached retrieval simulation
       local cached = cache[item.file]
       assert.equals(score1, cached.score)
-      assert.same(item.nos.normalized_features, cached.features)
+      assert.same(item.nos.input_buf, cached.input_buf)
     end)
 
     it("should use different cache keys for different queries", function()
@@ -286,7 +301,7 @@ describe("neural scoring integration", function()
           is_open_buffer = false,
           is_alternate = false,
           raw_features = {},
-          normalized_features = {},
+          input_buf = {},
         },
       }
 
@@ -306,19 +321,17 @@ describe("neural scoring integration", function()
         recency = 0,
         trigram = 0,
       }
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
       local registry = require("neural-open.algorithms.registry")
       local algorithm = registry.get_algorithm()
-      local score1 = algorithm.calculate_score(item.nos.normalized_features)
-      cache[item.file .. "__" .. context1.query] =
-        { score = score1, features = vim.deepcopy(item.nos.normalized_features) }
+      local score1 = algorithm.calculate_score(item.nos.input_buf)
+      cache[item.file .. "__" .. context1.query] = { score = score1, input_buf = vim.deepcopy(item.nos.input_buf) }
 
       item.nos.ctx = context2
       item.nos.raw_features.match = 20 -- Lower match for "test" query
-      item.nos.normalized_features = scorer.normalize_features(item.nos.raw_features)
-      local score2 = algorithm.calculate_score(item.nos.normalized_features)
-      cache[item.file .. "__" .. context2.query] =
-        { score = score2, features = vim.deepcopy(item.nos.normalized_features) }
+      item.nos.input_buf = make_input_buf(item.nos.raw_features)
+      local score2 = algorithm.calculate_score(item.nos.input_buf)
+      cache[item.file .. "__" .. context2.query] = { score = score2, input_buf = vim.deepcopy(item.nos.input_buf) }
 
       -- Different cache entries for different queries
       assert.is_not_nil(cache["/test/file.lua__file"])

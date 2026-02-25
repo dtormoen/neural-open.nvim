@@ -1,14 +1,17 @@
 --- Naive scoring algorithm - simple sum of normalized features
 local M = {}
 
---- Calculate score by summing all normalized features
----@param normalized_features table<string, number>
+local scorer = require("neural-open.scorer")
+
+--- Calculate score by summing all elements in the input buffer
+---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
 ---@return number
-function M.calculate_score(normalized_features)
+function M.calculate_score(input_buf)
   local score = 0
-  for _, value in pairs(normalized_features) do
-    if value and value > 0 then
-      score = score + value
+  for i = 1, #input_buf do
+    local v = input_buf[i]
+    if v > 0 then
+      score = score + v
     end
   end
   return score
@@ -40,13 +43,14 @@ function M.debug_view(item, all_items)
     table.insert(lines, "")
   end
 
-  if item.nos and item.nos.normalized_features then
+  if item.nos and item.nos.input_buf then
+    local normalized_features = scorer.input_buf_to_features(item.nos.input_buf)
     table.insert(lines, "Normalized Features (all weighted equally):")
     table.insert(lines, "")
 
     -- Sort features by value for better readability
     local sorted_features = {}
-    for name, value in pairs(item.nos.normalized_features) do
+    for name, value in pairs(normalized_features) do
       table.insert(sorted_features, { name = name, value = value })
     end
     table.sort(sorted_features, function(a, b)

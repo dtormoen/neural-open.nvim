@@ -3,6 +3,21 @@ local M = {}
 local math_exp = math.exp
 local trigrams = require("neural-open.trigrams")
 
+--- Canonical feature names in input buffer order (shared by all algorithms)
+M.FEATURE_NAMES =
+  { "match", "virtual_name", "frecency", "open", "alt", "proximity", "project", "recency", "trigram", "transition" }
+
+--- Convert a flat input buffer to a named features table
+---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
+---@return table<string, number>
+function M.input_buf_to_features(input_buf)
+  local features = {}
+  for i, name in ipairs(M.FEATURE_NAMES) do
+    features[name] = input_buf[i]
+  end
+  return features
+end
+
 -- Reusable temp items for matcher calls in on_match_handler (avoids 2 allocations per item per keystroke)
 local _mock_item = { text = "", idx = 1, score = 0 }
 local _temp_item = { text = "", idx = 1, score = 0 }
@@ -267,25 +282,15 @@ function M.on_match_handler(matcher, item)
   local frecency_value = item.frecency or 0
   item.nos.raw_features.frecency = frecency_value
 
-  -- Fast path for NN algorithm: update pre-allocated nn_input buffer
-  -- and score directly (zero table allocation per keystroke).
-  -- normalized_features is NOT populated in this path; downstream
-  -- consumers (update_weights, debug_view) use nn_input directly.
-  if item.nos.nn_input then
-    local nn_input = item.nos.nn_input --[[@as number[] ]]
-    nn_input[1] = M.normalize_match_score(raw_match_score)
-    nn_input[2] = M.normalize_match_score(raw_virtual_name_score)
-    nn_input[3] = M.normalize_frecency(frecency_value)
-    local total_weighted_score = algorithm.calculate_score_direct(nn_input)
-    item.nos.neural_score = total_weighted_score
-    item.score = total_weighted_score
-  else
-    -- Standard path for classic/naive algorithms
-    item.nos.normalized_features = M.normalize_features(item.nos.raw_features)
-    local total_weighted_score = algorithm.calculate_score(item.nos.normalized_features)
-    item.nos.neural_score = total_weighted_score
-    item.score = total_weighted_score
-  end
+  -- Update pre-allocated input_buf with dynamic features and score
+  -- (zero table allocation per keystroke for all algorithms)
+  local input_buf = item.nos.input_buf
+  input_buf[1] = M.normalize_match_score(raw_match_score)
+  input_buf[2] = M.normalize_match_score(raw_virtual_name_score)
+  input_buf[3] = M.normalize_frecency(frecency_value)
+  local total_weighted_score = algorithm.calculate_score(input_buf)
+  item.nos.neural_score = total_weighted_score
+  item.score = total_weighted_score
 end
 
 return M

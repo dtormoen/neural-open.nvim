@@ -268,8 +268,9 @@ describe("scorer with transitions", function()
           ["/test/project/file.lua"] = 0.5,
         },
         algorithm = {
-          calculate_score = function(normalized_features)
-            return normalized_features.transition or 0
+          calculate_score = function(input_buf)
+            -- Transition is index 10 in input_buf
+            return input_buf[10] or 0
           end,
         },
       }
@@ -285,6 +286,13 @@ describe("scorer with transitions", function()
       local raw_features = scorer.compute_static_raw_features("/test/project/file.lua", context, item_data)
       assert.equals(0.5, raw_features.transition)
 
+      -- Create input_buf pre-filled with static normalized features (as source.lua transform does)
+      local norm = scorer.normalize_features(raw_features)
+      local pre_filled_buf = {}
+      for i, name in ipairs(scorer.FEATURE_NAMES) do
+        pre_filled_buf[i] = norm[name] or 0
+      end
+
       -- Create a mock item
       local item = {
         file = "/test/project/file.lua",
@@ -292,7 +300,7 @@ describe("scorer with transitions", function()
         nos = {
           normalized_path = "/test/project/file.lua",
           raw_features = raw_features,
-          normalized_features = {},
+          input_buf = pre_filled_buf,
           ctx = context,
         },
       }
@@ -310,7 +318,8 @@ describe("scorer with transitions", function()
 
       -- Transition should still be 0.5
       assert.equals(0.5, item.nos.raw_features.transition)
-      assert.equals(0.5, item.nos.normalized_features.transition)
+      -- Transition is index 10 in input_buf
+      assert.equals(0.5, item.nos.input_buf[10])
     end)
   end)
 end)
