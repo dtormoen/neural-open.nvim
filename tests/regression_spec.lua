@@ -2,7 +2,10 @@
 --- Ensures that transform → on_match_handler → algorithm.calculate_score
 --- produces consistent, reproducible scores across commits.
 ---
---- If expected scores change, the commit MUST explain why.
+--- Changes that break these tests either need a fix, or when scores
+--- legitimately change, the update should be isolated in a separate
+--- commit scoped to the smallest possible change so it's easy to
+--- review what caused the score shift.
 ---
 --- To re-capture expected scores after an intentional change:
 ---   REGRESSION_CAPTURE=1 just test tests/regression_spec.lua
@@ -63,8 +66,9 @@ local function build_match_lookup(items, phase_match_scores)
     if scores then
       -- Map item.file (used as item.text) → match score
       lookup[item.file] = scores.match or 0
-      -- Map virtual_name → virtual_name score (if item has a virtual name)
-      if item.nos and item.nos.virtual_name and scores.virtual_name then
+      -- Map virtual_name → virtual_name score only when it differs from file,
+      -- otherwise the match score already covers both lookups (same text = same score)
+      if item.nos and item.nos.virtual_name and item.nos.virtual_name ~= item.file and scores.virtual_name then
         lookup[item.nos.virtual_name] = scores.virtual_name
       end
     end
@@ -72,8 +76,10 @@ local function build_match_lookup(items, phase_match_scores)
   return lookup
 end
 
+local ALGORITHM_NAMES = { "nn", "classic", "naive" }
+
 describe("scoring pipeline regression", function()
-  local scorer, source, nn, neural_open
+  local scorer, source, algorithms, neural_open
 
   if CAPTURE_MODE then
     teardown(function()
@@ -84,7 +90,7 @@ describe("scoring pipeline regression", function()
   before_each(function()
     helpers.clear_plugin_modules()
 
-    -- Mock db → returns empty so bundled NN defaults are used
+    -- Mock db → returns empty so bundled NN defaults / config defaults are used
     package.loaded["neural-open.db"] = {
       get_weights = function()
         return {}
@@ -92,32 +98,31 @@ describe("scoring pipeline regression", function()
       save_weights = function() end,
     }
 
-    -- Mock weights module to return empty (triggers bundled default weights)
-    package.loaded["neural-open.weights"] = {
-      get_weights = function()
-        return {}
-      end,
-      save_weights = function() end,
-      get_default_weights = function()
-        return nil
-      end,
-      reset_weights = function()
-        return {}
-      end,
-    }
-
-    -- Load real modules
+    -- Load real modules (including real weights module for classic defaults)
     neural_open = require("neural-open")
     neural_open.setup({ algorithm = "nn" })
 
     scorer = require("neural-open.scorer")
     source = require("neural-open.source")
 
-    -- Initialize NN with default config and bundled weights
+    -- Initialize all algorithms
+    algorithms = {}
+
     package.loaded["neural-open.algorithms.nn"] = nil
-    nn = require("neural-open.algorithms.nn")
+    local nn = require("neural-open.algorithms.nn")
     nn.init(neural_open.config.algorithm_config.nn)
     nn.load_weights()
+    algorithms.nn = nn
+
+    local classic = require("neural-open.algorithms.classic")
+    classic.init(neural_open.config.algorithm_config.classic)
+    classic.load_weights()
+    algorithms.classic = classic
+
+    local naive = require("neural-open.algorithms.naive")
+    naive.init(neural_open.config.algorithm_config.naive or {})
+    naive.load_weights()
+    algorithms.naive = naive
   end)
 
   for _, test_case in ipairs(fixture.test_cases) do
@@ -145,7 +150,7 @@ describe("scoring pipeline regression", function()
           current_file = test_case.context.current_file,
           current_file_trigrams = current_file_trigrams,
           current_file_virtual_name = current_file_virtual_name,
-          algorithm = nn,
+          algorithm = algorithms.nn,
           transition_scores = test_case.context.transition_scores or {},
         }
 
@@ -196,44 +201,65 @@ describe("scoring pipeline regression", function()
       end)
 
       for _, phase in ipairs(test_case.phases) do
-        it(phase.name .. " produces expected scores", function()
-          -- Build mock matcher from phase match_scores
-          local match_lookup = build_match_lookup(items, phase.match_scores or {})
-          local mock_matcher = create_mock_matcher(phase.query, match_lookup)
+        for _, algo_name in ipairs(ALGORITHM_NAMES) do
+          it(phase.name .. " [" .. algo_name .. "] produces expected scores", function()
+            -- Swap the algorithm on the shared context
+            ctx_data.algorithm = algorithms[algo_name]
 
-          -- Run on_match_handler for each item
-          for _, item in ipairs(items) do
-            scorer.on_match_handler(mock_matcher, item)
-          end
+            -- Build mock matcher from phase match_scores
+            local match_lookup = build_match_lookup(items, phase.match_scores or {})
+            local mock_matcher = create_mock_matcher(phase.query, match_lookup)
 
-          -- Check scores
-          for _, item in ipairs(items) do
-            local path = item.nos.normalized_path
-            local expected = phase.expected_scores[path]
+            -- Run on_match_handler for each item
+            for _, item in ipairs(items) do
+              scorer.on_match_handler(mock_matcher, item)
+            end
 
-            if CAPTURE_MODE then
-              -- Update fixture in-place and print
-              local rounded = round6(item.score)
-              phase.expected_scores[path] = rounded
-              print(string.format("CAPTURE [%s] [%s] %s = %.6f", test_case.name, phase.name, path, rounded))
-            else
-              assert.is_not_nil(expected, "No expected score for " .. path .. " in phase '" .. phase.name .. "'")
-              assert.near(
-                expected,
-                item.score,
-                TOLERANCE,
-                string.format(
-                  "Score mismatch for %s in phase '%s': expected %.6f, got %.6f (diff %.6f)",
-                  path,
-                  phase.name,
+            -- Ensure nested table exists for this algorithm
+            phase.expected_scores[algo_name] = phase.expected_scores[algo_name] or {}
+            local algo_expected = phase.expected_scores[algo_name]
+
+            -- Check scores
+            for _, item in ipairs(items) do
+              local path = item.nos.normalized_path
+              local expected = algo_expected[path]
+
+              if CAPTURE_MODE then
+                local rounded = round6(item.score)
+                algo_expected[path] = rounded
+                print(
+                  string.format(
+                    "CAPTURE [%s] [%s] [%s] %s = %.6f",
+                    test_case.name,
+                    phase.name,
+                    algo_name,
+                    path,
+                    rounded
+                  )
+                )
+              else
+                assert.is_not_nil(
+                  expected,
+                  "No expected score for " .. path .. " [" .. algo_name .. "] in phase '" .. phase.name .. "'"
+                )
+                assert.near(
                   expected,
                   item.score,
-                  math.abs(expected - item.score)
+                  TOLERANCE,
+                  string.format(
+                    "Score mismatch for %s [%s] in phase '%s': expected %.6f, got %.6f (diff %.6f)",
+                    path,
+                    algo_name,
+                    phase.name,
+                    expected,
+                    item.score,
+                    math.abs(expected - item.score)
+                  )
                 )
-              )
+              end
             end
-          end
-        end)
+          end)
+        end
       end
     end)
   end

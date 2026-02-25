@@ -1,5 +1,5 @@
 {
-  "_comment": "Regression test cases for the scoring pipeline. If expected scores change, the commit MUST explain why.",
+  "_comment": "Regression test cases for the scoring pipeline. Changes that break these tests either need a fix, or when scores legitimately change, the update should be isolated in a separate commit scoped to the smallest possible change so it's easy to review what caused the score shift.",
   "test_cases": [
     {
       "context": {
@@ -49,11 +49,27 @@
       "phases": [
         {
           "expected_scores": {
-            "/project/README.md": 4.654573,
-            "/project/lua/mylib/config.lua": 61.621015,
-            "/project/lua/mylib/utils.lua": 50.953347,
-            "/project/lua/other/helper.lua": 18.440803,
-            "/project/tests/init_spec.lua": 40.843386
+            "classic": {
+              "/project/README.md": 14.333333,
+              "/project/lua/mylib/config.lua": 43.858462,
+              "/project/lua/mylib/utils.lua": 50.69222,
+              "/project/lua/other/helper.lua": 20.666667,
+              "/project/tests/init_spec.lua": 26.721594
+            },
+            "naive": {
+              "/project/README.md": 1.333333,
+              "/project/lua/mylib/config.lua": 4.664615,
+              "/project/lua/mylib/utils.lua": 5.3627,
+              "/project/lua/other/helper.lua": 1.866667,
+              "/project/tests/init_spec.lua": 2.671159
+            },
+            "nn": {
+              "/project/README.md": 4.654573,
+              "/project/lua/mylib/config.lua": 61.621015,
+              "/project/lua/mylib/utils.lua": 50.953347,
+              "/project/lua/other/helper.lua": 18.440803,
+              "/project/tests/init_spec.lua": 40.843386
+            }
           },
           "match_scores": {},
           "name": "initial (empty query)",
@@ -61,11 +77,27 @@
         },
         {
           "expected_scores": {
-            "/project/README.md": 4.654573,
-            "/project/lua/mylib/config.lua": 38.866578,
-            "/project/lua/mylib/utils.lua": 50.953347,
-            "/project/lua/other/helper.lua": 18.440803,
-            "/project/tests/init_spec.lua": 40.843386
+            "classic": {
+              "/project/README.md": 14.333333,
+              "/project/lua/mylib/config.lua": 140.454889,
+              "/project/lua/mylib/utils.lua": 50.69222,
+              "/project/lua/other/helper.lua": 20.666667,
+              "/project/tests/init_spec.lua": 26.721594
+            },
+            "naive": {
+              "/project/README.md": 1.333333,
+              "/project/lua/mylib/config.lua": 5.35459,
+              "/project/lua/mylib/utils.lua": 5.3627,
+              "/project/lua/other/helper.lua": 1.866667,
+              "/project/tests/init_spec.lua": 2.671159
+            },
+            "nn": {
+              "/project/README.md": 4.654573,
+              "/project/lua/mylib/config.lua": 38.866578,
+              "/project/lua/mylib/utils.lua": 50.953347,
+              "/project/lua/other/helper.lua": 18.440803,
+              "/project/tests/init_spec.lua": 40.843386
+            }
           },
           "match_scores": {
             "README.md": {
@@ -134,10 +166,24 @@
       "phases": [
         {
           "expected_scores": {
-            "/app/src/App.tsx": 20.240244,
-            "/app/src/components/Header.tsx": 30.707923,
-            "/app/src/components/index.tsx": 90.563466,
-            "/app/src/utils/index.ts": 61.857206
+            "classic": {
+              "/app/src/App.tsx": 21.74359,
+              "/app/src/components/Header.tsx": 25.5,
+              "/app/src/components/index.tsx": 56.681319,
+              "/app/src/utils/index.ts": 33.12303
+            },
+            "naive": {
+              "/app/src/App.tsx": 1.974359,
+              "/app/src/components/Header.tsx": 2.25,
+              "/app/src/components/index.tsx": 6.668132,
+              "/app/src/utils/index.ts": 3.019394
+            },
+            "nn": {
+              "/app/src/App.tsx": 20.240244,
+              "/app/src/components/Header.tsx": 30.707923,
+              "/app/src/components/index.tsx": 90.563466,
+              "/app/src/utils/index.ts": 61.857206
+            }
           },
           "match_scores": {},
           "name": "initial (empty query)",
@@ -145,10 +191,24 @@
         },
         {
           "expected_scores": {
-            "/app/src/App.tsx": 20.240244,
-            "/app/src/components/Header.tsx": 30.707923,
-            "/app/src/components/index.tsx": 98.406041,
-            "/app/src/utils/index.ts": 96.148556
+            "classic": {
+              "/app/src/App.tsx": 21.74359,
+              "/app/src/components/Header.tsx": 25.5,
+              "/app/src/components/index.tsx": 171.836793,
+              "/app/src/utils/index.ts": 141.726754
+            },
+            "naive": {
+              "/app/src/App.tsx": 1.974359,
+              "/app/src/components/Header.tsx": 2.25,
+              "/app/src/components/index.tsx": 7.51961,
+              "/app/src/utils/index.ts": 3.822492
+            },
+            "nn": {
+              "/app/src/App.tsx": 20.240244,
+              "/app/src/components/Header.tsx": 30.707923,
+              "/app/src/components/index.tsx": 98.406041,
+              "/app/src/utils/index.ts": 96.148556
+            }
           },
           "match_scores": {
             "src/App.tsx": {
@@ -201,12 +261,281 @@
       "phases": [
         {
           "expected_scores": {
-            "/project/src/lib.lua": 81.789374,
-            "/project/src/main.lua": 59.940358
+            "classic": {
+              "/project/src/lib.lua": 45.546364,
+              "/project/src/main.lua": 33
+            },
+            "naive": {
+              "/project/src/lib.lua": 4.153636,
+              "/project/src/main.lua": 3
+            },
+            "nn": {
+              "/project/src/lib.lua": 81.789374,
+              "/project/src/main.lua": 59.940358
+            }
           },
           "match_scores": {},
           "name": "initial (empty query)",
           "query": ""
+        }
+      ]
+    },
+    {
+      "context": {
+        "alternate_buf": -1,
+        "current_file": "/home/user/dotfiles/Makefile",
+        "cwd": "/home/user/dotfiles",
+        "recent_files": {
+          "/home/user/dotfiles/.gitignore": 1,
+          "/home/user/dotfiles/scripts/setup": 3
+        },
+        "transition_scores": {
+          "/home/user/dotfiles/Dockerfile": 0.4
+        }
+      },
+      "items": [
+        {
+          "expected_normalized_path": "/home/user/dotfiles/Makefile",
+          "file": "Makefile",
+          "frecency": 10
+        },
+        {
+          "expected_normalized_path": "/home/user/dotfiles/Dockerfile",
+          "file": "Dockerfile",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/home/user/dotfiles/LICENSE",
+          "file": "LICENSE",
+          "frecency": 0
+        },
+        {
+          "buf": 5,
+          "expected_normalized_path": "/home/user/dotfiles/.gitignore",
+          "file": ".gitignore",
+          "frecency": 3
+        },
+        {
+          "expected_normalized_path": "/home/user/dotfiles/scripts/setup",
+          "file": "scripts/setup",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/home/user/dotfiles/.config/nvim/init.lua",
+          "file": ".config/nvim/init.lua",
+          "frecency": 7
+        }
+      ],
+      "name": "Home directory with extensionless and dotfiles",
+      "phases": [
+        {
+          "expected_scores": {
+            "classic": {
+              "/home/user/dotfiles/.config/nvim/init.lua": 25.733333,
+              "/home/user/dotfiles/.gitignore": 39.636364,
+              "/home/user/dotfiles/Dockerfile": 27.857143,
+              "/home/user/dotfiles/LICENSE": 23,
+              "/home/user/dotfiles/Makefile": 42.444444,
+              "/home/user/dotfiles/scripts/setup": 28.57
+            },
+            "naive": {
+              "/home/user/dotfiles/.config/nvim/init.lua": 2.066667,
+              "/home/user/dotfiles/.gitignore": 4.272727,
+              "/home/user/dotfiles/Dockerfile": 2.685714,
+              "/home/user/dotfiles/LICENSE": 2,
+              "/home/user/dotfiles/Makefile": 3.555556,
+              "/home/user/dotfiles/scripts/setup": 2.73
+            },
+            "nn": {
+              "/home/user/dotfiles/.config/nvim/init.lua": 29.441611,
+              "/home/user/dotfiles/.gitignore": 61.651837,
+              "/home/user/dotfiles/Dockerfile": 53.6633,
+              "/home/user/dotfiles/LICENSE": 25.935116,
+              "/home/user/dotfiles/Makefile": 60.967293,
+              "/home/user/dotfiles/scripts/setup": 37.489812
+            }
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        },
+        {
+          "expected_scores": {
+            "classic": {
+              "/home/user/dotfiles/.config/nvim/init.lua": 25.733333,
+              "/home/user/dotfiles/.gitignore": 39.636364,
+              "/home/user/dotfiles/Dockerfile": 27.857143,
+              "/home/user/dotfiles/LICENSE": 23,
+              "/home/user/dotfiles/Makefile": 171.175085,
+              "/home/user/dotfiles/scripts/setup": 28.57
+            },
+            "naive": {
+              "/home/user/dotfiles/.config/nvim/init.lua": 2.066667,
+              "/home/user/dotfiles/.gitignore": 4.272727,
+              "/home/user/dotfiles/Dockerfile": 2.685714,
+              "/home/user/dotfiles/LICENSE": 2,
+              "/home/user/dotfiles/Makefile": 4.505597,
+              "/home/user/dotfiles/scripts/setup": 2.73
+            },
+            "nn": {
+              "/home/user/dotfiles/.config/nvim/init.lua": 29.441611,
+              "/home/user/dotfiles/.gitignore": 61.651837,
+              "/home/user/dotfiles/Dockerfile": 53.6633,
+              "/home/user/dotfiles/LICENSE": 25.935116,
+              "/home/user/dotfiles/Makefile": 96.758943,
+              "/home/user/dotfiles/scripts/setup": 37.489812
+            }
+          },
+          "match_scores": {
+            ".config/nvim/init.lua": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            ".gitignore": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "Dockerfile": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "LICENSE": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "Makefile": {
+              "match": 95,
+              "virtual_name": 0
+            },
+            "scripts/setup": {
+              "match": 0,
+              "virtual_name": 0
+            }
+          },
+          "name": "search for 'make'",
+          "query": "make"
+        }
+      ]
+    },
+    {
+      "context": {
+        "alternate_buf": -1,
+        "current_file": "/home/user/my project/src/app (main).lua",
+        "cwd": "/home/user/my project",
+        "recent_files": {
+          "/home/user/my project/.github/workflows/ci.yml": 2,
+          "/home/user/my project/src/utils [v2].lua": 1
+        },
+        "transition_scores": {
+          "/home/user/my project/src/utils [v2].lua": 0.6
+        }
+      },
+      "items": [
+        {
+          "buf": 7,
+          "expected_normalized_path": "/home/user/my project/src/utils [v2].lua",
+          "file": "src/utils [v2].lua",
+          "frecency": 12
+        },
+        {
+          "expected_normalized_path": "/home/user/my project/.github/workflows/ci.yml",
+          "file": ".github/workflows/ci.yml",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/home/user/my project/src/app (main).lua",
+          "file": "src/app (main).lua",
+          "frecency": 5
+        },
+        {
+          "expected_normalized_path": "/home/user/my project/docs/r\u00e9sum\u00e9.md",
+          "file": "docs/r\u00e9sum\u00e9.md",
+          "frecency": 0
+        },
+        {
+          "expected_normalized_path": "/home/user/my project/src/a-b_c.d.lua",
+          "file": "src/a-b_c.d.lua",
+          "frecency": 0
+        }
+      ],
+      "name": "Paths with spaces, brackets, parens, unicode, and special chars",
+      "phases": [
+        {
+          "expected_scores": {
+            "classic": {
+              "/home/user/my project/.github/workflows/ci.yml": 26.71,
+              "/home/user/my project/docs/r\u00e9sum\u00e9.md": 19.75,
+              "/home/user/my project/src/a-b_c.d.lua": 24.904762,
+              "/home/user/my project/src/app (main).lua": 39.538462,
+              "/home/user/my project/src/utils [v2].lua": 49.866667
+            },
+            "naive": {
+              "/home/user/my project/.github/workflows/ci.yml": 2.59,
+              "/home/user/my project/docs/r\u00e9sum\u00e9.md": 1.75,
+              "/home/user/my project/src/a-b_c.d.lua": 2.190476,
+              "/home/user/my project/src/app (main).lua": 3.384615,
+              "/home/user/my project/src/utils [v2].lua": 5.366667
+            },
+            "nn": {
+              "/home/user/my project/.github/workflows/ci.yml": 34.170891,
+              "/home/user/my project/docs/r\u00e9sum\u00e9.md": 17.514036,
+              "/home/user/my project/src/a-b_c.d.lua": 29.183702,
+              "/home/user/my project/src/app (main).lua": 65.52217,
+              "/home/user/my project/src/utils [v2].lua": 49.436705
+            }
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        },
+        {
+          "expected_scores": {
+            "classic": {
+              "/home/user/my project/.github/workflows/ci.yml": 26.71,
+              "/home/user/my project/docs/r\u00e9sum\u00e9.md": 19.75,
+              "/home/user/my project/src/a-b_c.d.lua": 24.904762,
+              "/home/user/my project/src/app (main).lua": 82.942034,
+              "/home/user/my project/src/utils [v2].lua": 126.843426
+            },
+            "naive": {
+              "/home/user/my project/.github/workflows/ci.yml": 2.59,
+              "/home/user/my project/docs/r\u00e9sum\u00e9.md": 1.75,
+              "/home/user/my project/src/a-b_c.d.lua": 2.190476,
+              "/home/user/my project/src/app (main).lua": 3.694641,
+              "/home/user/my project/src/utils [v2].lua": 5.916501
+            },
+            "nn": {
+              "/home/user/my project/.github/workflows/ci.yml": 34.170891,
+              "/home/user/my project/docs/r\u00e9sum\u00e9.md": 17.514036,
+              "/home/user/my project/src/a-b_c.d.lua": 29.183702,
+              "/home/user/my project/src/app (main).lua": 16.648855,
+              "/home/user/my project/src/utils [v2].lua": 29.42861
+            }
+          },
+          "match_scores": {
+            ".github/workflows/ci.yml": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "docs/r\u00e9sum\u00e9.md": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "src/a-b_c.d.lua": {
+              "match": 0,
+              "virtual_name": 0
+            },
+            "src/app (main).lua": {
+              "match": 60,
+              "virtual_name": 0
+            },
+            "src/utils [v2].lua": {
+              "match": 110,
+              "virtual_name": 0
+            }
+          },
+          "name": "search for 'util'",
+          "query": "util"
         }
       ]
     }
