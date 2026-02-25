@@ -26,6 +26,7 @@ setup:
     luarocks make neural-open-scm-1.rockspec --local
     luarocks install LuaFileSystem --local
     luarocks install busted --local
+    luarocks install luacheck --local
     luarocks install llscheck --local
     luarocks install luassert --local
     luarocks install nlua --local

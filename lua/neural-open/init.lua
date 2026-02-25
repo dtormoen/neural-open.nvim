@@ -1,5 +1,7 @@
 local M = {}
 
+M.version = "0.0.1" -- x-release-please-version
+
 ---@class NosConfig
 M.config = {
   algorithm = "nn", -- "naive" | "classic" | "nn"

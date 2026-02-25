@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  precommit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: extractions/setup-just@v2
+
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "luajit-2.1"
+
+      - uses: leafo/gh-actions-luarocks@v4
+
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Install tools
+        run: |
+          mkdir -p ~/.local/bin ~/.local/share/lua-lang-server
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+          # stylua
+          curl -fsSL https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-x86_64.zip -o /tmp/stylua.zip
+          unzip /tmp/stylua.zip -d ~/.local/bin
+          chmod +x ~/.local/bin/stylua
+
+          # lua-language-server
+          curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/3.15.0/lua-language-server-3.15.0-linux-x64.tar.gz" \
+            | tar -xz -C ~/.local/share/lua-lang-server
+          ln -s ~/.local/share/lua-lang-server/bin/lua-language-server ~/.local/bin/lua-language-server
+
+      - name: Install dependencies
+        run: just setup
+
+      - name: Run precommit checks
+        run: just precommit
