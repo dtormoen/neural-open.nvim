@@ -29,13 +29,13 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   dependencies = {
     "folke/snacks.nvim",
   },
+  -- NeuralOpen implements lazy loading internally. It needs to be loaded for recency tracking to work.
+  lazy=false;
   keys = {
     { "<leader><leader>", "<Plug>(NeuralOpen)", desc = "Neural Open Files" },
   },
   -- opts are optional. NeuralOpen will automatically use the defaults below.
-  opts = {
-    algorithm = "nn",
-  },
+  opts = {},
 }
 ```
 

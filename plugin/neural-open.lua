@@ -37,7 +37,9 @@ vim.api.nvim_create_autocmd("BufEnter", {
     if name == "" then
       return
     end
-    require("neural-open.recent").record_buffer_focus(name)
+    vim.schedule(function()
+      require("neural-open.recent").record_buffer_focus(name)
+    end)
   end,
   desc = "Track buffer focus for NeuralOpen recency",
 })
