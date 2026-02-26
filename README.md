@@ -14,6 +14,15 @@ Inspired by [smart-open.nvim](https://github.com/danielfalk/smart-open.nvim), bu
 - **Multiple Algorithms**: Neural network (default), classic weighted sum based on smart-open.nvim, or naive baseline
 - **Fast Performance**: Leverages Snacks.nvim's async file discovery and picker infrastructure
 
+> [!NOTE]
+> Neural Open ships with pre-trained default weights so it's useful immediately, but the
+> network is trained on one person's workflow. Give it a couple of days of normal use and it
+> will start adapting to your specific navigation patterns.
+
+Here's the debug preview showing the neural network's score breakdown and training metrics as you navigate:
+
+![Debug preview showing neural network training in progress](https://github.com/user-attachments/assets/7d8aaef2-0a7e-4dcb-9102-a8b6d0d2844c)
+
 ## Requirements
 
 - Neovim >= 0.11.0
