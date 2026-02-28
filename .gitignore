@@ -1,3 +1,7 @@
+# tsk
+.tsk/tmp
+.tsk/epics
+
 # Lua development
 *.rock
 .luarocks/
