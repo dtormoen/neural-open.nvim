@@ -6,7 +6,9 @@ local _is_windows = vim.fn.has("win32") == 1
 --- Capture global context that is shared across all items in the session
 --- This is called once at the beginning of a file picking session
 ---@param ctx table The Snacks picker context
-function M.capture_context(ctx)
+---@param picker_name? string Optional picker name for custom file pickers (weight isolation)
+---@param effective_config? NosConfig Optional config with per-picker overrides (defaults to global config)
+function M.capture_context(ctx, picker_name, effective_config)
   -- Capture buffer context safely here (before async operations)
   local recent = require("neural-open.recent")
   local recent_files = recent.get_recency_map()
@@ -30,7 +32,7 @@ function M.capture_context(ctx)
   local current_file_trigrams_size = 0
   local current_file_virtual_name = ""
   local current_file_dir, current_file_depth = nil, 0
-  local config = require("neural-open").config
+  local config = effective_config or require("neural-open").config
   local scorer = require("neural-open.scorer")
   scorer.set_recency_list_size(config.recency_list_size)
   if current_file ~= "" then
@@ -44,7 +46,13 @@ function M.capture_context(ctx)
   local registry = require("neural-open.algorithms.registry")
 
   -- Get the algorithm from config (guaranteed to return a valid algorithm)
-  local algorithm = registry.get_algorithm()
+  local algorithm
+  if picker_name then
+    -- Custom file picker: use per-picker weight isolation
+    algorithm = registry.get_algorithm_for_picker(config.algorithm, config.algorithm_config, picker_name)
+  else
+    algorithm = registry.get_algorithm()
+  end
 
   -- Load the latest weights for this algorithm
   algorithm.load_weights()

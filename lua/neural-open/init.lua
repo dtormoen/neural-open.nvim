@@ -88,6 +88,7 @@ M.config = {
     ["mod.rs"] = true,
   },
   recency_list_size = 100, -- Maximum number of files in persistent recency list
+  file_sources = { "buffers", "recent", "files", "git_files" },
   -- Debug settings (all optional, for development/troubleshooting)
   debug = {
     preview = false, -- Show detailed score breakdown in preview
@@ -101,6 +102,13 @@ M.config = {
 
 -- Flag to prevent concurrent weight updates
 local pending_update = false
+
+-- Flag to prevent concurrent item weight updates
+local pending_item_update = false
+
+-- Registry of picker configurations
+---@type table<string, NosPickerConfig>
+local picker_registry = {}
 
 -- Lazy initialization flag
 M._initialized = false
@@ -184,6 +192,156 @@ local function confirm_handler(picker, item)
   end
 end
 
+-- Confirm handler for item selection with learning
+---@param picker_name string Picker name for weight isolation
+---@param user_confirm fun(picker: table, item: table)? User's original confirm function
+---@return snacks.picker.Action.fn
+local function create_item_confirm_handler(picker_name, user_confirm)
+  return function(picker, item)
+    -- Call user's confirm function first
+    if user_confirm then
+      user_confirm(picker, item)
+    end
+
+    -- Then add learning logic asynchronously
+    if item and item.nos then
+      local item_id = item.nos.item_id
+      local nos_ctx = item.nos.ctx
+
+      -- Get visible rank before picker closes
+      local items = picker:items()
+      local visible_rank = nil
+      if items then
+        for i, list_item in ipairs(items) do
+          if list_item.nos and list_item.nos.item_id == item_id then
+            visible_rank = i
+            break
+          end
+        end
+      end
+
+      vim.schedule(function()
+        -- Record selection for tracking
+        if nos_ctx then
+          local item_tracking = require("neural-open.item_tracking")
+          item_tracking.record_selection(picker_name, item_id, nos_ctx.cwd)
+        end
+
+        -- Update weights if not already pending and not rank 1
+        if visible_rank and visible_rank > 1 and not pending_item_update then
+          if nos_ctx and nos_ctx.algorithm and nos_ctx.algorithm.update_weights then
+            item.neural_rank = visible_rank
+            pending_item_update = true
+            local ok, err = pcall(nos_ctx.algorithm.update_weights, item, items)
+            if not ok then
+              vim.notify("neural-open: Failed to update item weights: " .. tostring(err), vim.log.levels.ERROR)
+            end
+            pending_item_update = false
+          end
+        end
+      end)
+    end
+  end
+end
+
+-- Build an effective config that merges per-picker overrides over the global config.
+---@param picker_config NosPickerConfig
+---@return NosConfig
+local function build_effective_config(picker_config)
+  if not picker_config.algorithm and not picker_config.algorithm_config then
+    return M.config
+  end
+
+  local effective = vim.deepcopy(M.config)
+  if picker_config.algorithm then
+    effective.algorithm = picker_config.algorithm
+  end
+  if picker_config.algorithm_config then
+    effective.algorithm_config =
+      vim.tbl_deep_extend("force", effective.algorithm_config, picker_config.algorithm_config)
+    effective.item_algorithm_config =
+      vim.tbl_deep_extend("force", effective.item_algorithm_config or {}, picker_config.algorithm_config)
+  end
+  return effective
+end
+
+-- Build a Snacks source config for a custom file picker
+---@param picker_name string
+---@param picker_config NosPickerConfig
+---@return table Snacks source config
+local function build_file_source_config(picker_name, picker_config)
+  local source_mod = require("neural-open.source")
+  local scorer = require("neural-open.scorer")
+  local effective_config = build_effective_config(picker_config)
+
+  return {
+    finder = function(opts, ctx)
+      source_mod.capture_context(ctx, picker_name, effective_config)
+      if picker_config.finder then
+        return picker_config.finder(opts, ctx)
+      end
+    end,
+    format = picker_config.format or "file",
+    preview = picker_config.preview or function(ctx)
+      if M.config.debug.preview then
+        local debug_mod = require("neural-open.debug")
+        return debug_mod.debug_preview(ctx)
+      else
+        return require("snacks.picker.preview").file(ctx)
+      end
+    end,
+    transform = source_mod.create_neural_transform(effective_config, scorer, {}),
+    matcher = {
+      sort_empty = true,
+      frecency = true,
+      cwd_bonus = false,
+      on_match = scorer.on_match_handler,
+    },
+    sort = { fields = { "score:desc", "idx" } },
+    confirm = picker_config.confirm or confirm_handler,
+    title = picker_config.title,
+    debug = { scores = M.config.debug.snacks_scores },
+  }
+end
+
+-- Build a Snacks source config for an item picker
+---@param picker_name string
+---@param picker_config NosPickerConfig
+---@return table Snacks source config
+local function build_item_source_config(picker_name, picker_config)
+  local item_source = require("neural-open.item_source")
+  local item_scorer = require("neural-open.item_scorer")
+  local effective_config = build_effective_config(picker_config)
+
+  local finder
+  if picker_config.finder then
+    finder = function(opts, ctx)
+      item_source.capture_context(picker_name, ctx, effective_config)
+      return picker_config.finder(opts, ctx)
+    end
+  elseif picker_config.items then
+    finder = function(opts, ctx)
+      item_source.capture_context(picker_name, ctx, effective_config)
+      return picker_config.items
+    end
+  end
+
+  return {
+    finder = finder,
+    format = picker_config.format,
+    preview = picker_config.preview,
+    transform = item_source.create_item_transform(picker_name, effective_config, item_scorer),
+    matcher = {
+      sort_empty = true,
+      on_match = item_scorer.on_match_handler,
+    },
+    sort = { fields = { "score:desc", "idx" } },
+    confirm = create_item_confirm_handler(picker_name, picker_config.confirm),
+    title = picker_config.title,
+    debug = { scores = M.config.debug.snacks_scores },
+  }
+end
+
 -- Helper function to get neural-open source configuration
 local function get_neural_source_config()
   return {
@@ -195,17 +353,17 @@ local function get_neural_source_config()
       -- Use the multi finder with the captured context
       local Finder = require("snacks.picker.core.finder")
       local snacks = require("snacks")
-      local multi_sources = { "buffers", "recent", "files" }
+      local multi_sources = M.config.file_sources
       -- git_files source errors when not in a git repo (Snacks shows error notification)
-      if vim.fn.finddir(".git", ".;") ~= "" or vim.fn.findfile(".git", ".;") ~= "" then
-        multi_sources[#multi_sources + 1] = "git_files"
-      end
+      local in_git = vim.fn.finddir(".git", ".;") ~= "" or vim.fn.findfile(".git", ".;") ~= ""
       local finders = {}
 
       for _, source_name in ipairs(multi_sources) do
-        local source_config = vim.deepcopy(snacks.picker.sources[source_name])
-        local finder = require("snacks.picker.config").finder(source_config.finder)
-        finders[#finders + 1] = finder
+        if source_name ~= "git_files" or in_git then
+          local source_config = vim.deepcopy(snacks.picker.sources[source_name])
+          local finder = require("snacks.picker.config").finder(source_config.finder)
+          finders[#finders + 1] = finder
+        end
       end
 
       return Finder.multi(finders)(opts, ctx)
@@ -270,6 +428,47 @@ function M.open(opts)
   snacks.picker.pick("neural_open", opts)
 end
 
+--- Register a picker configuration for later use.
+---@param name string Picker name (used for weight file namespacing)
+---@param config NosPickerConfig Picker configuration
+function M.register_picker(name, config)
+  config.type = config.type or "item"
+  picker_registry[name] = config
+end
+
+--- Open a picker with neural scoring.
+--- If not previously registered, registers with the provided opts.
+--- If previously registered, merges opts over the registered config.
+---@param name string Picker name
+---@param opts? NosPickerConfig Picker configuration (merged over registered config)
+function M.pick(name, opts)
+  ensure_initialized()
+  opts = opts or {}
+
+  -- Register or merge with existing registration
+  if not picker_registry[name] then
+    M.register_picker(name, opts)
+  elseif next(opts) then
+    picker_registry[name] = vim.tbl_deep_extend("force", picker_registry[name], opts)
+  end
+
+  local picker_config = picker_registry[name]
+  local source_name = "neural_open_" .. name
+
+  -- Build and register the Snacks source
+  local snacks = require("snacks")
+  snacks.picker.sources = snacks.picker.sources or {}
+
+  if picker_config.type == "file" then
+    snacks.picker.sources[source_name] = build_file_source_config(name, picker_config)
+  else
+    snacks.picker.sources[source_name] = build_item_source_config(name, picker_config)
+  end
+
+  -- Open the picker
+  snacks.picker.pick(source_name, { title = picker_config.title })
+end
+
 function M.reset_weights(algorithm_name)
   local weights = require("neural-open.weights")
 
@@ -317,6 +516,13 @@ function M.command(args)
     M.open()
   elseif subcommand == "algorithm" then
     M.set_algorithm(args.fargs[2])
+  elseif subcommand == "pick" then
+    local picker_name = args.fargs[2]
+    if picker_name then
+      M.pick(picker_name)
+    else
+      vim.notify("Usage: NeuralOpen pick <picker_name>", vim.log.levels.ERROR)
+    end
   elseif subcommand == "reset" then
     M.reset_weights(args.fargs[2])
   else
@@ -339,10 +545,16 @@ function M.complete(arg_lead, cmd_line, cursor_pos)
 
   if #args <= 2 then
     -- Complete subcommands
-    local subcommands = { "algorithm", "reset" }
+    local subcommands = { "algorithm", "pick", "reset" }
     return vim.tbl_filter(function(s)
       return s:find(arg_lead, 1, true) == 1
     end, subcommands)
+  elseif args[2] == "pick" then
+    local names = vim.tbl_keys(picker_registry)
+    table.sort(names)
+    return vim.tbl_filter(function(s)
+      return s:find(arg_lead, 1, true) == 1
+    end, names)
   elseif args[2] == "algorithm" or args[2] == "reset" then
     -- Complete algorithm names
     return vim.tbl_filter(function(s)

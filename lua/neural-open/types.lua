@@ -160,6 +160,18 @@
 ---@field nos NosItemPickerData Neural-open specific data
 ---@field neural_rank? number Used during weight learning
 
+--- Configuration for a registered picker (passed to pick() or register_picker())
+---@class NosPickerConfig
+---@field type "file"|"item" Picker type: "file" uses 11-feature pipeline, "item" uses 7-feature pipeline (default "item")
+---@field title string? Picker window title
+---@field finder fun(opts: table, ctx: table): any Snacks finder function
+---@field items table[]? Static items (alternative to finder for item pickers)
+---@field format string|function|nil Format function or named format
+---@field preview string|function|nil Preview function or named preview
+---@field confirm fun(picker: table, item: table)? Action on selection
+---@field algorithm AlgorithmName? Algorithm override (default from global config)
+---@field algorithm_config table? Algorithm config overrides
+
 ---@class NosConfig
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations for file pickers
@@ -167,4 +179,5 @@
 ---@field weights_path string Directory path to store learned weights (per-picker JSON files)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)
+---@field file_sources string[] File sources for the default file picker (default {"buffers", "recent", "files", "git_files"})
 ---@field debug NosDebugConfig Debug settings

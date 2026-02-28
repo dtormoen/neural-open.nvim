@@ -129,9 +129,22 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 - Registers as `neural_open` source in Snacks.nvim picker system (lazy, on first `open()`)
 - Uses Snacks.nvim's async file discovery and database utilities
 - Leverages Snacks picker actions and preview system
-- Creates `:NeuralOpen` user command with subcommands (`algorithm`, `reset`)
+- Creates `:NeuralOpen` user command with subcommands (`algorithm`, `pick`, `reset`)
 - Provides `<Plug>(NeuralOpen)` mapping for easy keybinding
 - `setup()` is optional - plugin works with sensible defaults
+
+### Public Picker API
+
+The plugin exposes a generic `pick()` API for creating arbitrary item pickers with neural scoring. Each picker trains independently.
+
+- **`M.register_picker(name, config)`**: Stores a picker config in the registry for later use. `config.type` defaults to `"item"`.
+- **`M.pick(name, opts)`**: Opens a picker. Registers inline if not previously registered; merges `opts` over existing registration. Builds and registers a Snacks source (`neural_open_<name>`), then opens it.
+  - `type = "item"` (default): Uses 7-feature item scoring pipeline (`item_source.lua` + `item_scorer.lua`). Confirm handler records selection via `item_tracking` and triggers weight learning when rank > 1.
+  - `type = "file"`: Uses 11-feature file scoring pipeline (`source.lua` + `scorer.lua`) with per-picker weight isolation. Custom finder replaces the default multi-finder.
+- **`M.open()`**: Unchanged — opens the default file picker.
+- **`:NeuralOpen pick <name>`**: Opens a registered picker by name.
+
+Configurable `file_sources` (default `{"buffers", "recent", "files", "git_files"}`) controls which Snacks sources the default file picker uses.
 
 ## Testing
 
@@ -291,8 +304,6 @@ The plugin is highly configurable with settings for:
 - **Database location and persistence**: Configurable storage directory for per-picker weight files (`weights_path`)
 - **Scoring weights and factors**: Customizable feature weights for Classic algorithm
 - **Item picker algorithm config**: Separate algorithm configurations for non-file pickers via `item_algorithm_config` (7-feature pipeline: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected). Default NN architecture is `{7, 16, 8, 1}`
-- **File ignore patterns**: Exclude files from picker
-- **Performance limits**: max_results to control picker size
 - **Regularization**: Weight decay, dropout rates, match_dropout, layer-specific decay multipliers for Neural Network
 - **Training stability**: Learning rate warmup for Neural Network (recommended for AdamW)
 - **Ranking margin**: Configurable margin for pairwise hinge loss (default 1.0) - controls minimum score difference between selected and non-selected items
