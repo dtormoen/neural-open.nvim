@@ -112,7 +112,7 @@
 ---@class NosConfig
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations
----@field weights_path string Path to store learned weights
+---@field weights_path string Directory path to store learned weights (per-picker JSON files)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)
 ---@field debug NosDebugConfig Debug settings

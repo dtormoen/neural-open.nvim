@@ -86,6 +86,7 @@ function M.clear_plugin_modules()
     "neural-open.algorithms.nn",
     "neural-open.algorithms.nn_core",
     "neural-open.recent",
+    "neural-open.transitions",
   }
 
   for _, module in ipairs(modules_to_clear) do
@@ -193,12 +194,11 @@ function M.cleanup_temp_dir(temp_dir)
   end
 end
 
--- Utility to run tests with a temporary database
+-- Utility to run tests with a temporary database directory
 function M.with_temp_db(callback)
   local temp_dir = M.create_temp_dir()
-  local temp_db_path = temp_dir .. "/test_weights.json"
 
-  local ok, result = pcall(callback, temp_db_path)
+  local ok, result = pcall(callback, temp_dir)
 
   -- Always cleanup
   M.cleanup_temp_dir(temp_dir)
@@ -258,10 +258,10 @@ function M.create_weights_mock()
 
   return {
     mock = {
-      get_weights = function(algo_name)
+      get_weights = function(algo_name, _picker_name)
         return saved_weights or {}
       end,
-      save_weights = function(algo_name, weights)
+      save_weights = function(algo_name, weights, _latency_ctx, _picker_name)
         saved_weights = weights
       end,
     },

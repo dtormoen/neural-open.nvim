@@ -1,33 +1,70 @@
 local M = {}
 
-local cached_weights_path = nil
+local cached_weights_dir = nil
 
-local function ensure_weights_file()
-  -- Return cached path if already initialized
-  if cached_weights_path then
-    return cached_weights_path
+--- Resolve and cache the weights directory path.
+--- Handles backward compatibility for .json file paths and auto-migration from weights.json to files.json.
+---@return string The weights directory path
+local function ensure_weights_dir()
+  if cached_weights_dir then
+    return cached_weights_dir
   end
 
-  -- Check config for weights_path, fall back to default
   local init = require("neural-open")
-  local configured_path = init.config.weights_path or vim.fn.stdpath("data") .. "/neural-open/weights.json"
-  -- Expand ~ and environment variables in the path
-  cached_weights_path = vim.fn.expand(configured_path)
+  local configured_path = init.config.weights_path or (vim.fn.stdpath("data") .. "/neural-open/")
+  configured_path = vim.fn.expand(configured_path)
 
-  -- Ensure the directory exists
-  local dir = vim.fn.fnamemodify(cached_weights_path, ":h")
-  vim.fn.mkdir(dir, "p")
+  -- Backward compat: if path ends in .json or is an existing file, use parent dir
+  if configured_path:match("%.json$") or (vim.fn.filereadable(configured_path) == 1) then
+    vim.notify(
+      "neural-open: weights_path should be a directory, not a file. Using parent directory.",
+      vim.log.levels.WARN
+    )
+    cached_weights_dir = vim.fn.fnamemodify(configured_path, ":h")
+  else
+    -- Strip trailing slashes for consistency
+    cached_weights_dir = configured_path:gsub("/+$", "")
+  end
 
-  return cached_weights_path
+  vim.fn.mkdir(cached_weights_dir, "p")
+
+  -- Auto-migration: weights.json -> files.json
+  local old_path = cached_weights_dir .. "/weights.json"
+  local new_path = cached_weights_dir .. "/files.json"
+  if vim.fn.filereadable(old_path) == 1 and vim.fn.filereadable(new_path) == 0 then
+    -- Create backup before rename so original is preserved if anything fails
+    local f = io.open(old_path, "r")
+    if f then
+      local content = f:read("*all")
+      f:close()
+      local bak = io.open(old_path .. ".bak", "w")
+      if bak then
+        bak:write(content)
+        bak:close()
+      end
+    end
+    os.rename(old_path, new_path)
+  end
+
+  return cached_weights_dir
+end
+
+--- Resolve the file path for a specific picker name.
+---@param picker_name string
+---@return string
+local function picker_path(picker_name)
+  local dir = ensure_weights_dir()
+  return dir .. "/" .. picker_name .. ".json"
 end
 
 --- Save weights to disk with optional latency tracking
+---@param picker_name string The picker name (e.g. "files")
 ---@param weights table
 ---@param latency_ctx? table Optional latency context for tracking
 ---@return boolean success
-function M.save_weights(weights, latency_ctx)
+function M.save_weights(picker_name, weights, latency_ctx)
   local latency = require("neural-open.latency")
-  local weights_path = ensure_weights_file()
+  local weights_path = picker_path(picker_name)
 
   -- Encode with timing and metadata
   local encoded, ok = latency.measure(latency_ctx, "db.save.json_encode", function()
@@ -89,11 +126,12 @@ function M.save_weights(weights, latency_ctx)
 end
 
 --- Get weights from disk with optional latency tracking
+---@param picker_name string The picker name (e.g. "files")
 ---@param latency_ctx? table Optional latency context
 ---@return table weights
-function M.get_weights(latency_ctx)
+function M.get_weights(picker_name, latency_ctx)
   local latency = require("neural-open.latency")
-  local weights_path = ensure_weights_file()
+  local weights_path = picker_path(picker_name)
 
   -- Read file with timing
   local content, read_ok = latency.measure(latency_ctx, "db.get.file_read", function()
@@ -123,6 +161,11 @@ function M.get_weights(latency_ctx)
   end
 
   return weights or {}
+end
+
+--- Reset the cached weights directory path. Used by tests to ensure clean state.
+function M.reset_cache()
+  cached_weights_dir = nil
 end
 
 return M

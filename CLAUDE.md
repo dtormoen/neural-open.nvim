@@ -26,7 +26,7 @@ Results are documented in `docs/benchmark-results.md`.
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
 - **`recent.lua`**: Persistent recency tracking with in-memory cache and debounced disk writes
 - **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
-- **`db.lua`**: JSON file storage with atomic writes for persistent weight storage
+- **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker stores weights in `<weights_dir>/<picker_name>.json`
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
 
 ### Data Structure
@@ -110,11 +110,12 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 
 ### Data Persistence
 
-- **Weights file**: JSON file storing learned weight adjustments per algorithm
+- **Weights directory**: Per-picker JSON files in the configured `weights_path` directory (default `~/.local/share/nvim/neural-open/`). The file picker stores data in `files.json`; future pickers get their own files (e.g., `just_recipes.json`)
   - Classic algorithm: Feature weights
   - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with normalized absolute paths for positive_file/negative_file), ranking accuracy metrics, and format version
   - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
   - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
+- **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. If `weights_path` is configured as a `.json` file path, a deprecation warning is logged and the parent directory is used
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI
 - **Format Versioning**: Neural network weights include version field (v2.0-hinge for pairwise format)
@@ -237,10 +238,10 @@ local default_weights = helpers.get_default_config().algorithm_config.classic.de
 
 -- Mock returns real defaults, not hardcoded values
 local mock_weights = {
-  get_weights = function(algo)
+  get_weights = function(algo, _picker_name)
     return vim.deepcopy(default_weights)
   end,
-  save_weights = function() end,
+  save_weights = function(_algo, _weights, _latency_ctx, _picker_name) end,
 }
 package.loaded["neural-open.weights"] = mock_weights
 ```
@@ -283,7 +284,7 @@ The plugin is highly configurable with settings for:
   - AdamW: Adaptive, robust, recommended for most users
 - **Matching algorithms**: fzf/fzy for fuzzy matching
 - **Learning rate adjustments**: Per-algorithm learning rate configuration
-- **Database location and persistence**: Configurable storage path for weights
+- **Database location and persistence**: Configurable storage directory for per-picker weight files (`weights_path`)
 - **Scoring weights and factors**: Customizable feature weights for Classic algorithm
 - **File ignore patterns**: Exclude files from picker
 - **Performance limits**: max_results to control picker size

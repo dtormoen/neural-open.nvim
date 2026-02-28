@@ -580,13 +580,14 @@ describe("neural-open", function()
 
   describe("db", function()
     it("should save and load weights", function()
-      helpers.with_temp_db(function(temp_db_path)
-        neural_open.setup({ weights_path = temp_db_path })
+      helpers.with_temp_db(function(temp_db_dir)
+        neural_open.setup({ weights_path = temp_db_dir })
+        db.reset_cache()
 
         local test_weights = { classic = { match = 123, proximity = 456 } }
-        db.save_weights(test_weights)
+        db.save_weights("files", test_weights)
 
-        local loaded = db.get_weights()
+        local loaded = db.get_weights("files")
         assert.are.same(test_weights, loaded)
       end)
     end)

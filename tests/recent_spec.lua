@@ -21,10 +21,10 @@ describe("recent module", function()
     -- Mock db module
     mock_db = {
       weights_data = {},
-      get_weights = function()
+      get_weights = function(_picker_name, _latency_ctx)
         return vim.deepcopy(mock_db.weights_data)
       end,
-      save_weights = function(data)
+      save_weights = function(_picker_name, data, _latency_ctx)
         mock_db.weights_data = vim.deepcopy(data)
       end,
     }
@@ -147,9 +147,9 @@ describe("recent module", function()
     it("is a no-op when no changes have been made", function()
       local save_count = 0
       local original_save = mock_db.save_weights
-      mock_db.save_weights = function(data)
+      mock_db.save_weights = function(picker_name, data, latency_ctx)
         save_count = save_count + 1
-        original_save(data)
+        original_save(picker_name, data, latency_ctx)
       end
 
       -- Trigger ensure_loaded via get_recency_list (read-only, no dirty flag)
@@ -183,9 +183,9 @@ describe("recent module", function()
     it("resets dirty flag so subsequent flush is a no-op", function()
       local save_count = 0
       local original_save = mock_db.save_weights
-      mock_db.save_weights = function(data)
+      mock_db.save_weights = function(picker_name, data, latency_ctx)
         save_count = save_count + 1
-        original_save(data)
+        original_save(picker_name, data, latency_ctx)
       end
 
       recent.record_buffer_focus("/path/a.lua")

@@ -92,10 +92,10 @@ describe("scoring pipeline regression", function()
 
     -- Mock db → returns empty so bundled NN defaults / config defaults are used
     package.loaded["neural-open.db"] = {
-      get_weights = function()
+      get_weights = function(_picker_name, _latency_ctx)
         return {}
       end,
-      save_weights = function() end,
+      save_weights = function(_picker_name, _data, _latency_ctx) end,
     }
 
     -- Load real modules (including real weights module for classic defaults)

@@ -27,10 +27,10 @@ describe("transition integration", function()
     -- Setup mocks
     mock_db = {
       weights_data = {},
-      get_weights = function()
+      get_weights = function(_picker_name, _latency_ctx)
         return vim.deepcopy(mock_db.weights_data)
       end,
-      save_weights = function(data)
+      save_weights = function(_picker_name, data, _latency_ctx)
         mock_db.weights_data = vim.deepcopy(data)
       end,
     }
@@ -238,7 +238,7 @@ describe("transition integration", function()
     end)
 
     it("should handle missing weights data", function()
-      mock_db.get_weights = function()
+      mock_db.get_weights = function(_picker_name, _latency_ctx)
         return nil
       end
 

@@ -11,10 +11,10 @@ describe("transitions module", function()
     -- Mock db module
     mock_db = {
       weights_data = {},
-      get_weights = function()
+      get_weights = function(_picker_name, _latency_ctx)
         return vim.deepcopy(mock_db.weights_data)
       end,
-      save_weights = function(data)
+      save_weights = function(_picker_name, data, _latency_ctx)
         mock_db.weights_data = vim.deepcopy(data)
       end,
     }
@@ -295,9 +295,9 @@ describe("transitions module", function()
     it("should use atomic writes through db.save_weights", function()
       local save_count = 0
       local original_save = mock_db.save_weights
-      mock_db.save_weights = function(data)
+      mock_db.save_weights = function(picker_name, data, latency_ctx)
         save_count = save_count + 1
-        original_save(data)
+        original_save(picker_name, data, latency_ctx)
       end
 
       transitions.record_transition("/path/a.lua", "/path/b.lua")
@@ -305,7 +305,7 @@ describe("transitions module", function()
     end)
 
     it("should handle nil weights data gracefully", function()
-      mock_db.get_weights = function()
+      mock_db.get_weights = function(_picker_name, _latency_ctx)
         return nil
       end
 

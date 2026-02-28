@@ -108,7 +108,7 @@ function M.record_transition(from_path, to_path, latency_ctx)
 
   latency.start(latency_ctx, "transitions.get_weights", "async.transition_record")
   local db = require("neural-open.db")
-  local all_weights = db.get_weights(latency_ctx) or {}
+  local all_weights = db.get_weights("files", latency_ctx) or {}
   latency.finish(latency_ctx, "transitions.get_weights")
 
   migrate_legacy(all_weights)
@@ -130,7 +130,7 @@ function M.record_transition(from_path, to_path, latency_ctx)
 
   latency.start(latency_ctx, "transitions.save_weights", "async.transition_record")
   all_weights.transition_frecency = frecency
-  db.save_weights(all_weights, latency_ctx)
+  db.save_weights("files", all_weights, latency_ctx)
   latency.finish(latency_ctx, "transitions.save_weights")
 end
 
@@ -142,10 +142,10 @@ function M.compute_scores_from(source_path)
   local normalized_source = path_mod.normalize(source_path)
 
   local db = require("neural-open.db")
-  local all_weights = db.get_weights() or {}
+  local all_weights = db.get_weights("files") or {}
 
   if migrate_legacy(all_weights) then
-    db.save_weights(all_weights)
+    db.save_weights("files", all_weights)
   end
 
   local frecency = all_weights.transition_frecency or {}

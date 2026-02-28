@@ -23,11 +23,13 @@ end
 
 --- Load weights for a specific algorithm from database
 ---@param algorithm_name string
+---@param picker_name? string Picker name for storage isolation (default "files")
 ---@return table
-function M.get_weights(algorithm_name)
+function M.get_weights(algorithm_name, picker_name)
   local db = ensure_db()
+  picker_name = picker_name or "files"
 
-  local stored_data = db.get_weights()
+  local stored_data = db.get_weights(picker_name)
 
   -- Get weights for this specific algorithm
   local algorithm_weights = {}
@@ -51,13 +53,15 @@ end
 ---@param algorithm_name string
 ---@param weights table
 ---@param latency_ctx? table Optional latency context
-function M.save_weights(algorithm_name, weights, latency_ctx)
+---@param picker_name? string Picker name for storage isolation (default "files")
+function M.save_weights(algorithm_name, weights, latency_ctx, picker_name)
   local latency = require("neural-open.latency")
   local db = ensure_db()
+  picker_name = picker_name or "files"
 
   -- Load all current weights (measured in db.get_weights)
   local all_weights, ok = latency.measure(latency_ctx, "weights.get_all", function()
-    return db.get_weights(latency_ctx) or {}
+    return db.get_weights(picker_name, latency_ctx) or {}
   end, "nn.save_weights")
 
   if not ok then
@@ -69,19 +73,20 @@ function M.save_weights(algorithm_name, weights, latency_ctx)
 
   -- Save back to database (measured in db.save_weights)
   latency.measure(latency_ctx, "weights.save_all", function()
-    db.save_weights(all_weights, latency_ctx)
+    db.save_weights(picker_name, all_weights, latency_ctx)
   end, "nn.save_weights")
 end
 
 --- Reset weights for a specific algorithm
 ---@param algorithm_name string?
 ---@param defaults table?
+---@param picker_name? string Picker name for storage isolation (default "files")
 ---@return table
-function M.reset_weights(algorithm_name, defaults)
+function M.reset_weights(algorithm_name, defaults, picker_name)
   algorithm_name = algorithm_name or "classic"
 
   local reset_weights = vim.deepcopy(defaults or {})
-  M.save_weights(algorithm_name, reset_weights)
+  M.save_weights(algorithm_name, reset_weights, nil, picker_name)
 
   return reset_weights
 end

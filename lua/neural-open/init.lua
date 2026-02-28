@@ -44,7 +44,7 @@ M.config = {
       margin = 1.0, -- Margin for pairwise hinge loss
     },
   },
-  weights_path = vim.fn.stdpath("data") .. "/neural-open/weights.json",
+  weights_path = vim.fn.stdpath("data") .. "/neural-open/",
   special_files = {
     ["__init__.py"] = true,
     ["index.js"] = true,

@@ -182,7 +182,7 @@ function M.debug_preview(ctx)
 
   -- Transitions (All Files)
   local db = require("neural-open.db")
-  local all_weights = db.get_weights() or {}
+  local all_weights = db.get_weights("files") or {}
   local transition_frecency = all_weights.transition_frecency
   if transition_frecency then
     local now = os.time()

@@ -95,7 +95,7 @@ local function ensure_loaded()
   loaded = true
 
   local db = require("neural-open.db")
-  local all_weights = db.get_weights() or {}
+  local all_weights = db.get_weights("files") or {}
   local persisted = all_weights.recency_list
 
   if persisted and type(persisted) == "table" and #persisted > 0 then
@@ -192,9 +192,9 @@ function M.flush()
   end
 
   local db = require("neural-open.db")
-  local all_weights = db.get_weights() or {}
+  local all_weights = db.get_weights("files") or {}
   all_weights.recency_list = recency_list
-  db.save_weights(all_weights)
+  db.save_weights("files", all_weights)
 
   dirty = false
 end
