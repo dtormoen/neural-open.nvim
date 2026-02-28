@@ -39,9 +39,10 @@ local nn = require("neural-open.algorithms.nn")
 
 -- Initialize nn with default config
 local config = helpers.get_default_config()
-local nn_config = config.algorithm_config.nn
-nn.init(nn_config)
-nn.load_weights()
+local nn_config = vim.deepcopy(config.algorithm_config.nn)
+nn_config.picker_name = "benchmark"
+local nn_instance = nn.create_instance(nn_config)
+nn_instance.load_weights()
 
 --------------------------------------------------------------------------------
 -- Synthetic data generation
@@ -224,7 +225,7 @@ local function create_context(paths)
     current_file_trigrams_size = current_file_tris_size,
     recent_files = recent_files,
     alternate_buf = paths[1],
-    algorithm = nn,
+    algorithm = nn_instance,
     transition_scores = transition_scores,
   }
 end
@@ -389,7 +390,7 @@ for _, size in ipairs(REPO_SIZES) do
       input_buf[1] = scorer.normalize_match_score(rf.match)
       input_buf[2] = scorer.normalize_match_score(rf.virtual_name)
       input_buf[3] = scorer.normalize_frecency(rf.frecency)
-      nn.calculate_score(input_buf)
+      nn_instance.calculate_score(input_buf)
     end
   end)
 
@@ -409,7 +410,7 @@ for _, size in ipairs(REPO_SIZES) do
 
   local nn_median = benchmark(function()
     for _, buf in ipairs(pre_normalized) do
-      nn.calculate_score(buf)
+      nn_instance.calculate_score(buf)
     end
   end)
 
@@ -479,7 +480,7 @@ for _, size in ipairs(REPO_SIZES) do
 
   -- 7. Weight loading: load_weights triggers ensure_weights(true) + prepare_inference_cache
   local load_median = benchmark(function()
-    nn.load_weights()
+    nn_instance.load_weights()
   end)
 
   -- Print results

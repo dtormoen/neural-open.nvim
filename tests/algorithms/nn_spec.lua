@@ -1,5 +1,6 @@
 describe("Neural Network Algorithm", function()
   local nn
+  local instance
   local scorer = require("neural-open.scorer")
 
   local function features_to_input_buf(features)
@@ -33,6 +34,7 @@ describe("Neural Network Algorithm", function()
     match_dropout = 0,
     warmup_steps = 0,
     dropout_rates = { 0 },
+    picker_name = "test",
   }
 
   before_each(function()
@@ -46,18 +48,18 @@ describe("Neural Network Algorithm", function()
 
     -- Initialize with standard test configuration
     local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
-    nn.init(config.algorithm_config.nn)
+    instance = nn.create_instance(config.algorithm_config.nn)
   end)
 
   describe("Basic Functionality", function()
     it("returns algorithm name", function()
-      assert.equals("nn", nn.get_name())
+      assert.equals("nn", instance.get_name())
     end)
 
     it("calculates scores from normalized features", function()
       local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0, 1.0 }
 
-      local score = nn.calculate_score(input_buf)
+      local score = instance.calculate_score(input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0)
       assert.is_true(score <= 100)
@@ -73,13 +75,14 @@ describe("Neural Network Algorithm", function()
         optimizer = "sgd",
         dropout_rates = { 0, 0 },
       })
-      nn.init(test_config.algorithm_config.nn)
+      test_config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(test_config.algorithm_config.nn)
 
       local input_buf1 = { 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 }
       local input_buf2 = { 0.1, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0 }
 
-      local score1 = nn.calculate_score(input_buf1)
-      local score2 = nn.calculate_score(input_buf2)
+      local score1 = instance.calculate_score(input_buf1)
+      local score2 = instance.calculate_score(input_buf2)
 
       -- With batch norm, initial scores might be similar but should differ after proper initialization
       -- Allow for small differences due to numerical precision
@@ -92,7 +95,7 @@ describe("Neural Network Algorithm", function()
     it("handles sparse input gracefully", function()
       local input_buf = { 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }
 
-      local score = nn.calculate_score(input_buf)
+      local score = instance.calculate_score(input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0)
     end)
@@ -158,7 +161,7 @@ describe("Neural Network Algorithm", function()
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
-      nn.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -231,7 +234,7 @@ describe("Neural Network Algorithm", function()
         return mock_time
       end
 
-      nn.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -288,7 +291,7 @@ describe("Neural Network Algorithm", function()
       })
 
       local items1 = { other1, item1 }
-      nn.update_weights(item1, items1)
+      instance.update_weights(item1, items1)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -324,7 +327,7 @@ describe("Neural Network Algorithm", function()
         }),
         item2,
       }
-      nn.update_weights(item2, items2)
+      instance.update_weights(item2, items2)
 
       saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -342,7 +345,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 1,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -362,7 +366,7 @@ describe("Neural Network Algorithm", function()
         })
 
         local items = { item }
-        nn.update_weights(item, items)
+        instance.update_weights(item, items)
       end
 
       local saved_weights = weights_mock.get_saved()
@@ -381,7 +385,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 15, -- Will create 15 batches
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -428,7 +433,7 @@ describe("Neural Network Algorithm", function()
         )
       end
 
-      nn.update_weights(selected, items)
+      instance.update_weights(selected, items)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -452,7 +457,8 @@ describe("Neural Network Algorithm", function()
           history_size = 100, -- Large enough to keep all samples
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Mock weights module to capture training samples
       local saved_weights = nil
@@ -542,7 +548,7 @@ describe("Neural Network Algorithm", function()
       assert.is_not_nil(selected_item.nos.input_buf, "Selected item should have input_buf")
       assert.equals("selected.lua", selected_item.file, "Selected item should have correct file name")
 
-      nn.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
 
       assert.equals(1, save_call_count, "save_weights should have been called once")
       assert.is_not_nil(saved_weights, "Should have saved weights")
@@ -657,7 +663,7 @@ describe("Neural Network Algorithm", function()
         transition = 0.0,
       })
 
-      nn.update_weights(item1, { item1, item2 })
+      instance.update_weights(item1, { item1, item2 })
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
       local pairs_case1 = saved_weights.nn.training_history
@@ -672,7 +678,7 @@ describe("Neural Network Algorithm", function()
       assert.equals(1, pair_count, "Should have 1 pair with best.lua positive and second.lua negative")
 
       -- Test case 2: Selected item is last (no items below)
-      nn.update_weights(item2, { item1, item2 })
+      instance.update_weights(item2, { item1, item2 })
       saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
       local pairs_case2 = saved_weights.nn.training_history
@@ -694,7 +700,7 @@ describe("Neural Network Algorithm", function()
           and #saved_weights.nn.training_history
         or 0
 
-      nn.update_weights(item1, { item1 })
+      instance.update_weights(item1, { item1 })
       assert.is_not_nil(saved_weights)
       local pairs_case3 = saved_weights.nn.training_history
 
@@ -719,10 +725,11 @@ describe("Neural Network Algorithm", function()
           dropout_rates = { 0.5, 0.3 }, -- Dropout for each hidden layer
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      local local_instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Should initialize without error
-      assert.is_not_nil(nn)
+      assert.is_not_nil(local_instance)
     end)
 
     it("validates dropout configuration length", function()
@@ -743,7 +750,8 @@ describe("Neural Network Algorithm", function()
             dropout_rates = { 0.5 }, -- Only 1 dropout rate
           })
         )
-        nn.init(config.algorithm_config.nn)
+        config.algorithm_config.nn.picker_name = "test"
+        nn.create_instance(config.algorithm_config.nn)
       end)
     end)
 
@@ -765,7 +773,8 @@ describe("Neural Network Algorithm", function()
             dropout_rates = { 1.0 }, -- Invalid: must be < 1
           })
         )
-        nn.init(config.algorithm_config.nn)
+        config.algorithm_config.nn.picker_name = "test"
+        nn.create_instance(config.algorithm_config.nn)
       end)
 
       assert.has_error(function()
@@ -781,7 +790,8 @@ describe("Neural Network Algorithm", function()
             dropout_rates = { -0.1 }, -- Invalid: must be >= 0
           })
         )
-        nn.init(config.algorithm_config.nn)
+        config.algorithm_config.nn.picker_name = "test"
+        nn.create_instance(config.algorithm_config.nn)
       end)
     end)
 
@@ -800,14 +810,15 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local input_buf = { 0.8, 0.5, 0.3, 1.0, 0.0, 0.6, 1.0, 0.4, 0.7, 0.0, 1.0 }
 
       -- Calculate scores multiple times - should be deterministic in inference
-      local score1 = nn.calculate_score(input_buf)
-      local score2 = nn.calculate_score(input_buf)
-      local score3 = nn.calculate_score(input_buf)
+      local score1 = instance.calculate_score(input_buf)
+      local score2 = instance.calculate_score(input_buf)
+      local score3 = instance.calculate_score(input_buf)
 
       -- In inference mode (no dropout), scores should be identical
       assert.equals(score1, score2)
@@ -826,7 +837,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 3,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Create a selection scenario
       local selected_item = create_mock_item("selected.lua", {
@@ -862,14 +874,14 @@ describe("Neural Network Algorithm", function()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
       -- First update to build some history
-      nn.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
 
       local initial_batches = saved_weights.nn.stats.batches_trained
 
       -- Second update should use multiple batches if history is available
-      nn.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
       saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
 
@@ -892,7 +904,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 5,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.5,
@@ -932,7 +945,7 @@ describe("Neural Network Algorithm", function()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
       -- Update with items that will create 6 pairs (above minimum threshold of 5)
-      nn.update_weights(item, ranked_items)
+      instance.update_weights(item, ranked_items)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -956,7 +969,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 1,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.5,
@@ -996,7 +1010,7 @@ describe("Neural Network Algorithm", function()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
       -- Update with items that will create only 3 pairs (below 50% threshold of 5)
-      nn.update_weights(item, ranked_items)
+      instance.update_weights(item, ranked_items)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -1015,7 +1029,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 2,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -1075,7 +1090,7 @@ describe("Neural Network Algorithm", function()
       -- This will create multiple pairs: 3 from items above + potentially 0 below = 3 pairs minimum
       -- With batch_size=2, we can make 1 batch from current pairs + 0 from history (no history yet)
       -- So first update might only create 1 batch
-      nn.update_weights(item1, { item2, item3, item4, item1 })
+      instance.update_weights(item1, { item2, item3, item4, item1 })
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -1087,7 +1102,7 @@ describe("Neural Network Algorithm", function()
       assert.is_true(initial_history_size >= 1, "Should have at least 1 loss entry after first update")
 
       -- Second update - with history now available, should train 2 batches
-      nn.update_weights(item1, { item2, item3, item4, item1 })
+      instance.update_weights(item1, { item2, item3, item4, item1 })
 
       saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights.nn.stats.loss_history)
@@ -1121,7 +1136,7 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Get debug view before any training
-      local debug_lines = nn.debug_view(item, { item })
+      local debug_lines = instance.debug_view(item, { item })
       assert.is_table(debug_lines)
       assert.is_true(#debug_lines > 0)
 
@@ -1144,15 +1159,16 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 5,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Try to update with insufficient data
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
       -- Debug view should still work
-      debug_lines = nn.debug_view(item, { item })
+      debug_lines = instance.debug_view(item, { item })
       assert.is_table(debug_lines)
       assert.is_true(#debug_lines > 0)
     end)
@@ -1192,7 +1208,7 @@ describe("Neural Network Algorithm", function()
       })
 
       local items = { item }
-      nn.update_weights(item, items)
+      instance.update_weights(item, items)
 
       -- Verify state was saved
       assert.is_not_nil(saved_state)
@@ -1200,18 +1216,19 @@ describe("Neural Network Algorithm", function()
       assert.is_not_nil(saved_state.nn.network)
 
       -- Calculate score with trained state
-      local score1 = nn.calculate_score(item.nos.input_buf)
+      local score1 = instance.calculate_score(item.nos.input_buf)
 
       -- Reset the module and reload through production pathway
       package.loaded["neural-open.algorithms.nn"] = nil
       nn = require("neural-open.algorithms.nn")
       local helpers = require("tests.helpers")
       local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
-      nn.init(config.algorithm_config.nn)
-      nn.load_weights() -- This should load from the mock
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
+      instance.load_weights() -- This should load from the mock
 
       -- Calculate score with loaded state
-      local score2 = nn.calculate_score(item.nos.input_buf)
+      local score2 = instance.calculate_score(item.nos.input_buf)
 
       -- Scores should be the same
       assert.is_true(math.abs(score1 - score2) < 0.001)
@@ -1235,7 +1252,8 @@ describe("Neural Network Algorithm", function()
           weight_decay = 0.1, -- Higher decay for testing
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local saved_weights = nil
       local initial_weights = nil
@@ -1282,7 +1300,7 @@ describe("Neural Network Algorithm", function()
       -- Use all training_items as ranked list to ensure adequate pairs are created
       for _ = 1, 5 do
         for _, item in ipairs(training_items) do
-          nn.update_weights(item, training_items)
+          instance.update_weights(item, training_items)
         end
       end
 
@@ -1315,7 +1333,8 @@ describe("Neural Network Algorithm", function()
           weight_decay = 0.0, -- No decay
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local saved_count = 0
       local weights_history = {}
@@ -1359,7 +1378,7 @@ describe("Neural Network Algorithm", function()
 
       -- Train multiple times
       for _ = 1, 3 do
-        nn.update_weights(item, { other_item, item })
+        instance.update_weights(item, { other_item, item })
       end
 
       assert.equals(3, saved_count)
@@ -1379,7 +1398,8 @@ describe("Neural Network Algorithm", function()
           layer_decay_multipliers = { 0.5, 2.0 }, -- First layer less decay, second layer more
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -1397,7 +1417,7 @@ describe("Neural Network Algorithm", function()
         transition = 0.0,
       })
 
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
       -- Configuration should be preserved
       local saved_weights = weights_mock.get_saved()
@@ -1416,7 +1436,8 @@ describe("Neural Network Algorithm", function()
           history_size = 50,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local losses = {}
       package.loaded["neural-open.weights"] = {
@@ -1459,7 +1480,7 @@ describe("Neural Network Algorithm", function()
 
       -- Train multiple epochs - rank negative higher to ensure training happens
       for _ = 1, 5 do
-        nn.update_weights(positive_item, { negative_item, positive_item })
+        instance.update_weights(positive_item, { negative_item, positive_item })
       end
 
       -- Loss should be recorded
@@ -1481,7 +1502,7 @@ describe("Neural Network Algorithm", function()
         },
       }
 
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
 
       assert.is_table(lines)
       assert.is_true(#lines > 0)
@@ -1495,27 +1516,20 @@ describe("Neural Network Algorithm", function()
     end)
 
     it("respects custom history_size configuration", function()
-      -- Mock the main module config
-      package.loaded["neural-open"] = {
-        config = {
-          algorithm = "nn",
-          algorithm_config = {
-            nn = {
-              architecture = { 11, 4, 1 },
-              optimizer = "sgd",
-              learning_rate = 0.1,
-              batch_size = 4,
-              history_size = 10000, -- Custom history size
-              batches_per_update = 2,
-              dropout_rates = { 0 },
-            },
-          },
-        },
-      }
-
-      -- Reload the nn module to pick up the new config
+      -- Create instance with custom history size
       package.loaded["neural-open.algorithms.nn"] = nil
       nn = require("neural-open.algorithms.nn")
+
+      instance = nn.create_instance({
+        architecture = { 11, 4, 1 },
+        optimizer = "sgd",
+        learning_rate = 0.1,
+        batch_size = 4,
+        history_size = 10000, -- Custom history size
+        batches_per_update = 2,
+        dropout_rates = { 0 },
+        picker_name = "test",
+      })
 
       local item = {
         file = "test.lua",
@@ -1525,7 +1539,7 @@ describe("Neural Network Algorithm", function()
         },
       }
 
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
 
       -- Verify that the debug view shows the custom history size (10000) not the default (1000)
@@ -1555,7 +1569,8 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = {
         file = "test.lua",
@@ -1565,7 +1580,7 @@ describe("Neural Network Algorithm", function()
         },
       }
 
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
 
       -- Check that weight decay is displayed
@@ -1585,7 +1600,8 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       package.loaded["neural-open.weights"] = {
         get_weights = function()
@@ -1610,9 +1626,9 @@ describe("Neural Network Algorithm", function()
         transition = 0.0,
       })
 
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
 
       -- Check for weight statistics section
@@ -1633,7 +1649,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 1,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -1670,13 +1687,13 @@ describe("Neural Network Algorithm", function()
       }
 
       -- Initially with no training, should show "Last Hinge Loss:"
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
       assert.is_true(content:match("Last Hinge Loss:") ~= nil)
 
       -- Train once to get 1 sample
-      nn.update_weights(item, { item, item2 })
-      lines = nn.debug_view(item)
+      instance.update_weights(item, { item, item2 })
+      lines = instance.debug_view(item)
       content = table.concat(lines, "\n")
 
       -- With history, should show aligned metrics table with Loss row
@@ -1685,10 +1702,10 @@ describe("Neural Network Algorithm", function()
 
       -- Train more times to build up history
       for _ = 1, 15 do
-        nn.update_weights(item, { item, item2 })
+        instance.update_weights(item, { item, item2 })
       end
 
-      lines = nn.debug_view(item)
+      lines = instance.debug_view(item)
       content = table.concat(lines, "\n")
 
       -- Should now have "Last" and "Avg 10" columns
@@ -1697,10 +1714,10 @@ describe("Neural Network Algorithm", function()
 
       -- Train many more times to reach 100+ samples
       for _ = 1, 90 do
-        nn.update_weights(item, { item, item2 })
+        instance.update_weights(item, { item, item2 })
       end
 
-      lines = nn.debug_view(item)
+      lines = instance.debug_view(item)
       content = table.concat(lines, "\n")
 
       -- Should now have "Avg 100" column
@@ -1735,9 +1752,10 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      local local_instance = nn.create_instance(config.algorithm_config.nn)
 
-      assert.is_not_nil(nn)
+      assert.is_not_nil(local_instance)
     end)
 
     it("rejects invalid optimizer types", function()
@@ -1756,7 +1774,8 @@ describe("Neural Network Algorithm", function()
             history_size = 100,
           })
         )
-        nn.init(config.algorithm_config.nn)
+        config.algorithm_config.nn.picker_name = "test"
+        nn.create_instance(config.algorithm_config.nn)
       end)
     end)
 
@@ -1775,7 +1794,8 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -1842,8 +1862,8 @@ describe("Neural Network Algorithm", function()
       -- This will generate 5 (hard neg) + 1 (below) + 4 (random) = 10 pairs
       -- But we need to run multiple updates to build history for a batch of 16
       -- Run 2 updates to accumulate pairs in history
-      nn.update_weights(selected_item, ranked_items)
-      nn.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -1890,12 +1910,13 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 }
 
       -- Should load without error and default to SGD
-      local score = nn.calculate_score(input_buf)
+      local score = instance.calculate_score(input_buf)
       assert.is_number(score)
     end)
 
@@ -1942,11 +1963,12 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Trigger weight loading by calculating a score
       local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 }
-      nn.calculate_score(input_buf)
+      instance.calculate_score(input_buf)
 
       -- Should have notified about optimizer change
       assert.is_true(notify_called)
@@ -1966,7 +1988,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 1,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -1997,13 +2020,13 @@ describe("Neural Network Algorithm", function()
       })
 
       -- First update
-      nn.update_weights(item1, { item2, item1 })
+      instance.update_weights(item1, { item2, item1 })
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
       assert.equals(1, saved_weights.nn.optimizer_state.timestep)
 
       -- Second update - timestep should increase
-      nn.update_weights(item1, { item2, item1 })
+      instance.update_weights(item1, { item2, item1 })
       saved_weights = weights_mock.get_saved()
       assert.is_true(saved_weights.nn.optimizer_state.timestep > 1)
 
@@ -2029,7 +2052,8 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -2046,9 +2070,9 @@ describe("Neural Network Algorithm", function()
         transition = 0.0,
       })
 
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
 
       assert.is_true(content:find("Optimizer: AdamW") ~= nil)
@@ -2059,7 +2083,7 @@ describe("Neural Network Algorithm", function()
     it("produces different training behavior between SGD and AdamW", function()
       -- Test SGD
       package.loaded["neural-open.algorithms.nn"] = nil
-      local nn_sgd = require("neural-open.algorithms.nn")
+      local nn_mod = require("neural-open.algorithms.nn")
 
       local helpers = require("tests.helpers")
       local config_sgd = helpers.create_algorithm_config(
@@ -2070,7 +2094,8 @@ describe("Neural Network Algorithm", function()
           batches_per_update = 1,
         })
       )
-      nn_sgd.init(config_sgd.algorithm_config.nn)
+      config_sgd.algorithm_config.nn.picker_name = "test_sgd"
+      local sgd_instance = nn_mod.create_instance(config_sgd.algorithm_config.nn)
 
       local saved_sgd = nil
       package.loaded["neural-open.weights"] = {
@@ -2111,16 +2136,16 @@ describe("Neural Network Algorithm", function()
       })
 
       for _ = 1, 3 do
-        nn_sgd.update_weights(item_pos, { item_neg, item_pos })
+        sgd_instance.update_weights(item_pos, { item_neg, item_pos })
       end
 
       local sgd_loss = saved_sgd.nn.stats.last_loss
 
       -- Test AdamW
       package.loaded["neural-open.algorithms.nn"] = nil
-      local nn_adamw = require("neural-open.algorithms.nn")
+      nn_mod = require("neural-open.algorithms.nn")
 
-      nn_adamw.init({
+      local adamw_instance = nn_mod.create_instance({
         architecture = { 11, 4, 1 },
         optimizer = "adamw",
         learning_rate = 0.001,
@@ -2128,6 +2153,7 @@ describe("Neural Network Algorithm", function()
         history_size = 10,
         batches_per_update = 1,
         dropout_rates = { 0 },
+        picker_name = "test_adamw",
       })
 
       local saved_adamw = nil
@@ -2143,7 +2169,7 @@ describe("Neural Network Algorithm", function()
       math.randomseed(42)
 
       for _ = 1, 3 do
-        nn_adamw.update_weights(item_pos, { item_neg, item_pos })
+        adamw_instance.update_weights(item_pos, { item_neg, item_pos })
       end
 
       local adamw_loss = saved_adamw.nn.stats.last_loss
@@ -2170,7 +2196,8 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
 
@@ -2201,7 +2228,7 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Create pairs by ranking other_item higher
-      nn.update_weights(selected_item, { other_item, selected_item })
+      instance.update_weights(selected_item, { other_item, selected_item })
 
       -- Reload with AdamW
       package.loaded["neural-open.algorithms.nn"] = nil
@@ -2217,10 +2244,11 @@ describe("Neural Network Algorithm", function()
           history_size = 100,
         })
       )
-      nn.init(config_adamw.algorithm_config.nn)
+      config_adamw.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config_adamw.algorithm_config.nn)
 
       -- Calculate score with original weights (should load from saved)
-      local score1 = nn.calculate_score(selected_item.nos.input_buf)
+      local score1 = instance.calculate_score(selected_item.nos.input_buf)
 
       -- Reset and use saved SGD weights but with AdamW
       package.loaded["neural-open.algorithms.nn"] = nil
@@ -2236,12 +2264,13 @@ describe("Neural Network Algorithm", function()
           learning_rate = 0.001,
         })
       )
-      nn.init(config_switch.algorithm_config.nn)
+      config_switch.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config_switch.algorithm_config.nn)
 
       -- Force reload
-      nn.load_weights()
+      instance.load_weights()
 
-      local score2 = nn.calculate_score(selected_item.nos.input_buf)
+      local score2 = instance.calculate_score(selected_item.nos.input_buf)
 
       -- Scores should be close since weights are preserved
       assert.is_true(math.abs(score1 - score2) < 1.0, "Weights should be preserved when switching optimizers")
@@ -2260,7 +2289,8 @@ describe("Neural Network Algorithm", function()
           warmup_steps = 100,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Create test items
       local item1 = create_mock_item("selected.lua", {
@@ -2290,10 +2320,10 @@ describe("Neural Network Algorithm", function()
       }, 30)
 
       -- Perform update to trigger warmup
-      nn.update_weights(item1, { item2, item1 })
+      instance.update_weights(item1, { item2, item1 })
 
       -- Verify weights were updated (basic sanity check)
-      local score_after = nn.calculate_score(item1.nos.input_buf)
+      local score_after = instance.calculate_score(item1.nos.input_buf)
       assert.is_number(score_after)
     end)
 
@@ -2306,7 +2336,8 @@ describe("Neural Network Algorithm", function()
           warmup_steps = 10,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -2322,10 +2353,10 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Update should work with warmup enabled
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
       -- Score should still be calculated correctly
-      local score = nn.calculate_score(item.nos.input_buf)
+      local score = instance.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2341,7 +2372,8 @@ describe("Neural Network Algorithm", function()
           warmup_steps = 10,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -2357,10 +2389,10 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Update should work with warmup enabled
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
       -- Score should still be calculated correctly
-      local score = nn.calculate_score(item.nos.input_buf)
+      local score = instance.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2369,7 +2401,8 @@ describe("Neural Network Algorithm", function()
       local helpers = require("tests.helpers")
 
       local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -2385,9 +2418,9 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Should work normally without warmup
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.input_buf)
+      local score = instance.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2398,7 +2431,8 @@ describe("Neural Network Algorithm", function()
       -- Init without warmup config
       -- No warmup_steps or warmup_start_factor (testing backward compatibility)
       local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -2414,9 +2448,9 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Should work with default warmup settings (disabled)
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.input_buf)
+      local score = instance.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2435,10 +2469,11 @@ describe("Neural Network Algorithm", function()
           match_dropout = 0.25,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      local local_instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Should initialize without error
-      assert.is_not_nil(nn)
+      assert.is_not_nil(local_instance)
     end)
 
     it("applies match_dropout during training", function()
@@ -2453,7 +2488,8 @@ describe("Neural Network Algorithm", function()
           match_dropout = 1.0,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
@@ -2486,7 +2522,7 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Train with match_dropout = 1.0, which should force network to learn from other features
-      nn.update_weights(item2, { item1, item2 })
+      instance.update_weights(item2, { item1, item2 })
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
@@ -2511,14 +2547,15 @@ describe("Neural Network Algorithm", function()
           match_dropout = 0.5,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local input_buf = { 0.8, 0.7, 0.3, 0.0, 0.0, 0.4, 1.0, 0.2, 0.5, 0.0, 1.0 }
 
       -- Calculate scores multiple times - should be deterministic in inference
-      local score1 = nn.calculate_score(input_buf)
-      local score2 = nn.calculate_score(input_buf)
-      local score3 = nn.calculate_score(input_buf)
+      local score1 = instance.calculate_score(input_buf)
+      local score2 = instance.calculate_score(input_buf)
+      local score3 = instance.calculate_score(input_buf)
 
       -- In inference mode (no dropout), scores should be identical
       assert.equals(score1, score2)
@@ -2542,7 +2579,8 @@ describe("Neural Network Algorithm", function()
           match_dropout = 0.5,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
@@ -2576,13 +2614,13 @@ describe("Neural Network Algorithm", function()
 
       -- Train multiple times to learn the pattern
       for _ = 1, 10 do
-        nn.update_weights(selected_item, { decoy_item, selected_item })
+        instance.update_weights(selected_item, { decoy_item, selected_item })
       end
 
       -- After training, the network should score selected_item higher
       -- even when match features are available during inference
-      local score_selected = nn.calculate_score(selected_item.nos.input_buf)
-      local score_decoy = nn.calculate_score(decoy_item.nos.input_buf)
+      local score_selected = instance.calculate_score(selected_item.nos.input_buf)
+      local score_decoy = instance.calculate_score(decoy_item.nos.input_buf)
 
       -- The network should have learned to rely on non-match features
       assert.is_number(score_selected)
@@ -2601,7 +2639,8 @@ describe("Neural Network Algorithm", function()
       nn = require("neural-open.algorithms.nn")
 
       local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -2617,9 +2656,9 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Should work normally without match dropout
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.input_buf)
+      local score = instance.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2632,7 +2671,8 @@ describe("Neural Network Algorithm", function()
 
       -- Init without match_dropout config (testing backward compatibility)
       local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = create_mock_item("test.lua", {
         match = 0.8,
@@ -2648,9 +2688,9 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Should use default match_dropout value (0.25)
-      nn.update_weights(item, { item })
+      instance.update_weights(item, { item })
 
-      local score = nn.calculate_score(item.nos.input_buf)
+      local score = instance.calculate_score(item.nos.input_buf)
       assert.is_number(score)
       assert.is_true(score >= 0 and score <= 100)
     end)
@@ -2664,7 +2704,8 @@ describe("Neural Network Algorithm", function()
           match_dropout = 0.3,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local item = {
         file = "test.lua",
@@ -2674,7 +2715,7 @@ describe("Neural Network Algorithm", function()
         },
       }
 
-      local lines = nn.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
 
       -- Check that match_dropout is displayed
@@ -2699,15 +2740,16 @@ describe("Neural Network Algorithm", function()
           dropout_rates = { 0, 0, 0 },
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Test with features that would cause dead neurons with regular ReLU
       local negative_buf = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 }
       local positive_buf = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0 }
 
       -- Calculate scores - with leaky ReLU, even all-zero inputs should produce non-zero output
-      local score_neg = nn.calculate_score(negative_buf)
-      local score_pos = nn.calculate_score(positive_buf)
+      local score_neg = instance.calculate_score(negative_buf)
+      local score_pos = instance.calculate_score(positive_buf)
 
       -- Both scores should be valid
       assert.is_number(score_neg)
@@ -2732,7 +2774,8 @@ describe("Neural Network Algorithm", function()
           dropout_rates = { 0, 0, 0 },
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       -- Mock weights module
       local saved_weights = nil
@@ -2773,17 +2816,17 @@ describe("Neural Network Algorithm", function()
       })
 
       -- Initial scores
-      local score1_before = nn.calculate_score(item1.nos.input_buf)
-      local score2_before = nn.calculate_score(item2.nos.input_buf)
+      local score1_before = instance.calculate_score(item1.nos.input_buf)
+      local score2_before = instance.calculate_score(item2.nos.input_buf)
 
       -- Train multiple times
       for _ = 1, 5 do
-        nn.update_weights(item2, { item1, item2 })
+        instance.update_weights(item2, { item1, item2 })
       end
 
       -- Scores after training
-      local score1_after = nn.calculate_score(item1.nos.input_buf)
-      local score2_after = nn.calculate_score(item2.nos.input_buf)
+      local score1_after = instance.calculate_score(item1.nos.input_buf)
+      local score2_after = instance.calculate_score(item2.nos.input_buf)
 
       -- Verify that learning occurred (scores changed)
       assert.are_not.equal(score1_before, score1_after, "Score for item1 should change after training")
@@ -2821,16 +2864,17 @@ describe("Neural Network Algorithm", function()
             dropout_rates = spec.dropout,
           })
         )
-        nn.init(config.algorithm_config.nn)
+        config.algorithm_config.nn.picker_name = "test"
+        instance = nn.create_instance(config.algorithm_config.nn)
 
         local input_buf = { 0.75, 0.3, 0.5, 1.0, 0.0, 0.6, 1.0, 0.4, 0.8, 0.2, 1.0 }
 
         -- Get fast path score via calculate_score
-        local fast_score = nn.calculate_score(input_buf)
+        local fast_score = instance.calculate_score(input_buf)
 
         -- Get reference score via general forward_pass
-        local input = nn._features_to_input(input_buf, false)
-        local activations = nn._forward_pass(input)
+        local input = instance._features_to_input(input_buf, false)
+        local activations = instance._forward_pass(input)
         local reference_score = activations[#activations][1][1] * 100
 
         -- Must be identical within floating point tolerance
@@ -2866,7 +2910,8 @@ describe("Neural Network Algorithm", function()
           history_size = 20,
         })
       )
-      nn.init(config.algorithm_config.nn)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
 
       local weights_mock = helpers.create_weights_mock()
       package.loaded["neural-open.weights"] = weights_mock.mock
@@ -2898,12 +2943,12 @@ describe("Neural Network Algorithm", function()
         trigram = 0.1,
         transition = 0.0,
       })
-      nn.update_weights(selected, { other, selected })
+      instance.update_weights(selected, { other, selected })
 
       -- After training, fast path should still match reference
-      local fast_score = nn.calculate_score(input_buf)
-      local input = nn._features_to_input(input_buf, false)
-      local activations = nn._forward_pass(input)
+      local fast_score = instance.calculate_score(input_buf)
+      local input = instance._features_to_input(input_buf, false)
+      local activations = instance._forward_pass(input)
       local reference_score = activations[#activations][1][1] * 100
 
       assert.is_true(

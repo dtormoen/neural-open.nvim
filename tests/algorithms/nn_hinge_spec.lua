@@ -256,6 +256,7 @@ describe("Pairwise Hinge Loss", function()
 
   describe("Pair Construction", function()
     local nn
+    local instance
 
     before_each(function()
       -- Setup environment
@@ -296,7 +297,8 @@ describe("Pairwise Hinge Loss", function()
       }
 
       nn = require("neural-open.algorithms.nn")
-      nn.init({
+      instance = nn.create_instance({
+        picker_name = "test",
         architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
@@ -359,10 +361,10 @@ describe("Pairwise Hinge Loss", function()
       }
 
       -- Call update_weights
-      nn.update_weights(items[5], items)
+      instance.update_weights(items[5], items)
 
       -- Verify training history contains pairs
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       assert.is_true(#history > 0)
 
       -- Should have: 4 hard negatives (items 1-4) + 1 immediate (item 6) + 1 random from item 7 = 6 pairs
@@ -384,10 +386,10 @@ describe("Pairwise Hinge Loss", function()
         create_item("3.lua", nil, 70),
       }
 
-      nn.update_weights(items[1], items)
+      instance.update_weights(items[1], items)
 
       -- Should have: 0 hard negatives + 1 immediate (item 2) + 1 random from item 3 = 2 pairs
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       assert.is_true(#history >= 1 and #history <= 2, string.format("Expected 1-2 pairs, got %d", #history))
     end)
 
@@ -397,10 +399,10 @@ describe("Pairwise Hinge Loss", function()
         create_item("selected.lua", nil, 80), -- Selected, rank 2 (last)
       }
 
-      nn.update_weights(items[2], items)
+      instance.update_weights(items[2], items)
 
       -- Should have: 1 hard negative (item 1) + 0 immediate + 0 random = 1 pair
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       assert.equals(1, #history)
       assert.equals("selected.lua", history[1].positive_file)
       assert.equals("1.lua", history[1].negative_file)
@@ -408,7 +410,8 @@ describe("Pairwise Hinge Loss", function()
 
     it("respects history size limit", function()
       -- Set small history size
-      nn.init({
+      instance = nn.create_instance({
+        picker_name = "test",
         history_size = 5,
         batch_size = 2,
         batches_per_update = 1,
@@ -433,10 +436,10 @@ describe("Pairwise Hinge Loss", function()
 
       -- Add 10 pairs (should only keep last 5)
       for _ = 1, 10 do
-        nn.update_weights(items[2], items)
+        instance.update_weights(items[2], items)
       end
 
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       assert.equals(5, #history)
     end)
 
@@ -446,9 +449,9 @@ describe("Pairwise Hinge Loss", function()
         create_item("selected.lua", nil, 80),
       }
 
-      nn.update_weights(items[2], items)
+      instance.update_weights(items[2], items)
 
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       assert.equals(1, #history)
 
       local pair = history[1]
@@ -466,9 +469,9 @@ describe("Pairwise Hinge Loss", function()
         create_item("selected.lua", nil, 70), -- Ranked 4th
       }
 
-      nn.update_weights(items[4], items)
+      instance.update_weights(items[4], items)
 
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       -- Should have 3 hard negatives (items 1-3) + 0 immediate + 0 random = 3 pairs
       assert.equals(3, #history)
 
@@ -495,9 +498,9 @@ describe("Pairwise Hinge Loss", function()
       end
       table.insert(items, create_item("selected.lua", nil, 50)) -- Ranked 11th
 
-      nn.update_weights(items[11], items)
+      instance.update_weights(items[11], items)
 
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       -- Selected at rank 11, top-10 are items 1-10
       -- Creates pairs: selected vs. each of the 10 items in top-10 = 10 pairs
       assert.equals(10, #history)
@@ -513,9 +516,9 @@ describe("Pairwise Hinge Loss", function()
         create_item("6.lua", nil, 50),
       }
 
-      nn.update_weights(items[1], items)
+      instance.update_weights(items[1], items)
 
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       -- Selected at rank 1, top-10 includes all 6 items
       -- Creates pairs: selected vs. other 5 items = 5 pairs
       assert.equals(5, #history)
@@ -531,6 +534,7 @@ describe("Pairwise Hinge Loss", function()
 
   describe("Pairwise Training Loop", function()
     local nn
+    local instance
 
     before_each(function()
       -- Setup mocks
@@ -569,7 +573,8 @@ describe("Pairwise Hinge Loss", function()
 
       nn_core = require("neural-open.algorithms.nn_core")
       nn = require("neural-open.algorithms.nn")
-      nn.init({
+      instance = nn.create_instance({
+        picker_name = "test",
         architecture = { 11, 8, 1 },
         learning_rate = 0.01,
         batch_size = 2, -- 2 pairs per batch
@@ -598,6 +603,12 @@ describe("Pairwise Hinge Loss", function()
     end)
 
     it("trains network to prefer positive over negative item", function()
+      -- Seed RNG for deterministic Xavier initialization (triggered by first
+      -- calculate_score -> ensure_weights -> init_network) and filler features.
+      -- init_state() seeds with os.time() which is second-granularity, so
+      -- consecutive runs can get different sequences, causing flaky results.
+      math.randomseed(42)
+
       -- Create features where positive should score higher
       local positive_features = {
         match = 0.9,
@@ -628,8 +639,8 @@ describe("Pairwise Hinge Loss", function()
       -- Get initial scores
       local pos_buf = features_to_input_buf(positive_features)
       local neg_buf = features_to_input_buf(negative_features)
-      local score_pos_before = nn.calculate_score(pos_buf)
-      local score_neg_before = nn.calculate_score(neg_buf)
+      local score_pos_before = instance.calculate_score(pos_buf)
+      local score_neg_before = instance.calculate_score(neg_buf)
       local diff_before = score_pos_before - score_neg_before
 
       -- Create items for training - add more items to top-10 for diverse training
@@ -656,12 +667,12 @@ describe("Pairwise Hinge Loss", function()
 
       -- Train: selected item is ranked 2nd (should learn to rank it higher)
       for _ = 1, 50 do -- Multiple training iterations
-        nn.update_weights(items[2], items)
+        instance.update_weights(items[2], items)
       end
 
       -- Get scores after training
-      local score_pos_after = nn.calculate_score(pos_buf)
-      local score_neg_after = nn.calculate_score(neg_buf)
+      local score_pos_after = instance.calculate_score(pos_buf)
+      local score_neg_after = instance.calculate_score(neg_buf)
       local diff_after = score_pos_after - score_neg_after
 
       -- Verify that difference increased or stayed positive (network learned)
@@ -675,7 +686,8 @@ describe("Pairwise Hinge Loss", function()
     it("does not update weights when margin is satisfied", function()
       -- Initialize with fixed seed
       math.randomseed(42)
-      nn.init({
+      local margin_instance = nn.create_instance({
+        picker_name = "test_margin",
         architecture = { 11, 4, 1 },
         optimizer = "sgd",
         margin = 0.1, -- Small margin for easier satisfaction
@@ -722,8 +734,8 @@ describe("Pairwise Hinge Loss", function()
 
       local pos_buf = features_to_input_buf(positive_features)
       local neg_buf = features_to_input_buf(negative_features)
-      local score_pos = nn.calculate_score(pos_buf)
-      local score_neg = nn.calculate_score(neg_buf)
+      local score_pos = margin_instance.calculate_score(pos_buf)
+      local score_neg = margin_instance.calculate_score(neg_buf)
 
       -- Check if margin is satisfied (this test may need adjustment based on initial weights)
       local loss = nn_core.pairwise_hinge_loss(score_pos / 100, score_neg / 100, 0.1)
@@ -736,13 +748,13 @@ describe("Pairwise Hinge Loss", function()
         }
 
         -- Get score before
-        local before = nn.calculate_score(pos_buf)
+        local before = margin_instance.calculate_score(pos_buf)
 
         -- Train once
-        nn.update_weights(items[2], items)
+        margin_instance.update_weights(items[2], items)
 
         -- Get score after
-        local after = nn.calculate_score(pos_buf)
+        local after = margin_instance.calculate_score(pos_buf)
 
         -- Score should not change much (within numerical precision)
         assert.is_true(
@@ -772,10 +784,10 @@ describe("Pairwise Hinge Loss", function()
       }
 
       -- Train once
-      nn.update_weights(items[2], items)
+      instance.update_weights(items[2], items)
 
       -- Verify training happened (loss history should have entries)
-      local stats = nn._get_stats()
+      local stats = instance._get_stats()
       assert.is_true(#stats.loss_history > 0)
       assert.is_number(stats.last_loss)
     end)
@@ -784,7 +796,8 @@ describe("Pairwise Hinge Loss", function()
       -- Set random seed for reproducibility
       math.randomseed(12345)
 
-      nn.init({
+      local convergence_instance = nn.create_instance({
+        picker_name = "test_convergence",
         architecture = { 11, 16, 8, 1 },
         learning_rate = 0.05,
         batch_size = 4,
@@ -835,17 +848,17 @@ describe("Pairwise Hinge Loss", function()
       }
 
       -- Record initial loss
-      nn.update_weights(items[2], items)
-      local stats = nn._get_stats()
+      convergence_instance.update_weights(items[2], items)
+      local stats = convergence_instance._get_stats()
       local initial_loss = stats.last_loss
 
       -- Train for many iterations
       for _ = 1, 100 do
-        nn.update_weights(items[2], items)
+        convergence_instance.update_weights(items[2], items)
       end
 
       -- Get final loss
-      stats = nn._get_stats()
+      stats = convergence_instance._get_stats()
       local final_loss = stats.last_loss
 
       -- Loss should decrease (or stay very low if already converged)
@@ -883,10 +896,10 @@ describe("Pairwise Hinge Loss", function()
       }
 
       -- Train
-      nn.update_weights(items[2], items)
+      instance.update_weights(items[2], items)
 
       -- Get weight norms
-      local stats = nn._get_stats()
+      local stats = instance._get_stats()
       if stats.weight_norms then
         for i, norm in ipairs(stats.weight_norms) do
           assert.is_true(norm == norm, string.format("Weight norm %d should not be NaN", i))
@@ -898,7 +911,7 @@ describe("Pairwise Hinge Loss", function()
   end)
 
   describe("Input-Size Migration", function()
-    local nn, weights_module
+    local nn, weights_module, instance
 
     before_each(function()
       -- Setup mocks
@@ -1013,7 +1026,8 @@ describe("Pairwise Hinge Loss", function()
       }
 
       _G.last_notify_message = nil
-      nn.init({
+      instance = nn.create_instance({
+        picker_name = "test",
         architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
@@ -1032,7 +1046,7 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading (input-size migration happens here)
-      local score = nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
+      local score = instance.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
       assert.is_number(score)
 
       -- Verify notification about input-size migration
@@ -1043,7 +1057,7 @@ describe("Pairwise Hinge Loss", function()
       )
 
       -- Verify first layer now has 11 rows
-      local weights = nn._get_weights()
+      local weights = instance._get_weights()
       assert.is_not_nil(weights)
       assert.is_not_nil(weights[1])
       assert.equals(11, #weights[1])
@@ -1066,7 +1080,7 @@ describe("Pairwise Hinge Loss", function()
       assert.equals(4, #weights[2])
 
       -- Verify training history was backfilled with 11 elements
-      local history = nn._get_training_history()
+      local history = instance._get_training_history()
       assert.equals(2, #history)
 
       -- First pair: non-current file (trigram=0.5, proximity=0.3) -> not_current=1.0
@@ -1144,7 +1158,8 @@ describe("Pairwise Hinge Loss", function()
       }
 
       _G.last_notify_message = nil
-      nn.init({
+      instance = nn.create_instance({
+        picker_name = "test",
         architecture = { 11, 4, 1 },
         optimizer = "adamw",
         learning_rate = 0.001,
@@ -1163,11 +1178,11 @@ describe("Pairwise Hinge Loss", function()
       })
 
       -- Trigger weight loading
-      local score = nn.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
+      local score = instance.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
       assert.is_number(score)
 
-      -- Verify first-layer moments were reset to 11×4
-      local opt = nn._get_optimizer_state()
+      -- Verify first-layer moments were reset to 11x4
+      local opt = instance._get_optimizer_state()
       assert.is_not_nil(opt)
       assert.is_not_nil(opt.moments)
 
@@ -1196,6 +1211,7 @@ describe("Pairwise Hinge Loss", function()
 
   describe("Debug View", function()
     local nn
+    local instance
 
     before_each(function()
       -- Setup mocks
@@ -1233,7 +1249,8 @@ describe("Pairwise Hinge Loss", function()
       }
 
       nn = require("neural-open.algorithms.nn")
-      nn.init({
+      instance = nn.create_instance({
+        picker_name = "test",
         architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.01,
@@ -1270,7 +1287,7 @@ describe("Pairwise Hinge Loss", function()
         },
       }
 
-      local debug_lines = nn.debug_view(item, {})
+      local debug_lines = instance.debug_view(item, {})
       local debug_text = table.concat(debug_lines, "\n")
 
       -- Verify margin is displayed
@@ -1287,7 +1304,7 @@ describe("Pairwise Hinge Loss", function()
         },
       }
 
-      local debug_lines = nn.debug_view(item, {})
+      local debug_lines = instance.debug_view(item, {})
       local debug_text = table.concat(debug_lines, "\n")
 
       -- Verify hinge loss labels
@@ -1303,7 +1320,7 @@ describe("Pairwise Hinge Loss", function()
         },
       }
 
-      local debug_lines = nn.debug_view(item, {})
+      local debug_lines = instance.debug_view(item, {})
       local debug_text = table.concat(debug_lines, "\n")
 
       -- Verify pairwise mode is mentioned
@@ -1320,7 +1337,7 @@ describe("Pairwise Hinge Loss", function()
         },
       }
 
-      local debug_lines = nn.debug_view(item, {})
+      local debug_lines = instance.debug_view(item, {})
       local debug_text = table.concat(debug_lines, "\n")
 
       -- Verify transition appears in both feature importance and input features

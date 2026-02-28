@@ -334,7 +334,8 @@ describe("Neural Network Batch Processing", function()
 
       local nn_test = require("neural-open.algorithms.nn")
 
-      nn_test.init({
+      local nn_instance = nn_test.create_instance({
+        picker_name = "test",
         architecture = { 11, 4, 1 },
         optimizer = "sgd",
         learning_rate = 0.1,
@@ -359,8 +360,8 @@ describe("Neural Network Batch Processing", function()
       local input_buf2 = { 0.3, 0.9, 0.2, 0.0, 1.0, 0.4, 0.0, 0.8, 0.1, 0.0, 1.0 }
 
       -- Calculate initial scores (triggers ensure_weights → deterministic random init)
-      local score1_before = nn_test.calculate_score(input_buf1)
-      local score2_before = nn_test.calculate_score(input_buf2)
+      local score1_before = nn_instance.calculate_score(input_buf1)
+      local score2_before = nn_instance.calculate_score(input_buf2)
 
       local selected_item = {
         file = "test1.lua",
@@ -374,7 +375,7 @@ describe("Neural Network Batch Processing", function()
 
       -- Train for multiple iterations to ensure convergence
       for _ = 1, 10 do
-        nn_test.update_weights(selected_item, ranked_items)
+        nn_instance.update_weights(selected_item, ranked_items)
       end
 
       -- Verify weights were saved
@@ -386,11 +387,11 @@ describe("Neural Network Batch Processing", function()
       assert.is_not_nil(saved_weights.nn.network.betas)
 
       -- Load the updated weights and rebuild inference cache
-      nn_test.load_weights()
+      nn_instance.load_weights()
 
       -- Calculate scores after training
-      local score1_after = nn_test.calculate_score(input_buf1)
-      local score2_after = nn_test.calculate_score(input_buf2)
+      local score1_after = nn_instance.calculate_score(input_buf1)
+      local score2_after = nn_instance.calculate_score(input_buf2)
 
       -- Selected item should have higher score after training
       assert.is_true(

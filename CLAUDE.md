@@ -108,7 +108,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Linearly increases learning rate from 10% to 100% over first N steps
   - Enabled by default for AdamW (10 steps)
   - Helps mitigate bias correction amplification in AdamW
-- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
+- **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`st.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Inside `nn.lua`, always call `prepare_inference_cache(st)` after modifying `st.weights`, `st.biases`, `st.gammas`, `st.betas`, `st.running_means`, or `st.running_vars` on a state table.
 - **Input-Size Migration**: Automatically expands the first layer when new features are added (e.g., 10 to 11 inputs), using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history with heuristic values. Users are notified of the upgrade.
 
 ### Data Persistence
@@ -200,15 +200,19 @@ classic.init(config.algorithm_config.classic)
 classic.load_weights()
 ```
 
-**Algorithm Tests with Overrides:**
+**Algorithm Tests with Overrides (nn uses instance API):**
 ```lua
 local helpers = require("tests.helpers")
+local nn = require("neural-open.algorithms.nn")
 
 local config = helpers.create_algorithm_config("nn", {
   architecture = { 9, 4, 1 },  -- Smaller network for testing
   batch_size = 4,              -- Faster test execution
 })
-nn.init(config.algorithm_config.nn)
+config.algorithm_config.nn.picker_name = "test"
+local instance = nn.create_instance(config.algorithm_config.nn)
+instance.load_weights()
+-- Use instance.calculate_score(), instance.update_weights(), etc.
 ```
 
 **Config Merging Tests:**

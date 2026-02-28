@@ -75,9 +75,6 @@ local function init_state(st, config)
   math.randomseed(os.time())
 end
 
--- Module state (used by legacy M.* API)
-local state = new_state()
-
 --- Forward propagation through the network with batch normalization and dropout
 --- Uses Leaky ReLU activation (alpha=0.01) for all hidden layers to prevent dying neurons
 --- and improve gradient flow, especially beneficial for binary features
@@ -1083,18 +1080,12 @@ local function train_on_batches(st, batches, latency_ctx)
 end
 
 --- Ensure config is available on the given state table.
---- Fallback loads from main module config (legacy path, removed once tests migrate to create_instance).
+--- Config is always set via init_state() / create_instance().
 ---@param st table State table
 ---@return NosNNConfig The current configuration
 local function ensure_config(st)
   if not st.config then
-    local main_config = require("neural-open").config
-    local algo_config = main_config.algorithm_config and main_config.algorithm_config.nn or {}
-    st.config = vim.deepcopy(algo_config)
-
-    if not st.config.architecture then
-      error("NN algorithm not properly initialized - missing configuration")
-    end
+    error("NN algorithm not properly initialized - call create_instance() first")
   end
   return st.config
 end
@@ -2013,7 +2004,7 @@ function M.create_instance(config)
     states[picker_name] = st
   end
   init_state(st, config)
-  return {
+  local instance = {
     calculate_score = function(input_buf)
       return calculate_score_impl(st, input_buf)
     end,
@@ -2031,87 +2022,43 @@ function M.create_instance(config)
     end,
     init = function() end, -- no-op; config already set via init_state
   }
-end
-
---- Calculate score using neural network from a flat input buffer.
---- The input_buf is used directly as the first layer's input (read-only, not modified).
---- IMPORTANT: load_weights() must be called before first use (done in capture_context)
----@param input_buf number[] Flat array of 11 normalized features in canonical order
----@return number Score in [0, 100]
-function M.calculate_score(input_buf)
-  return calculate_score_impl(state, input_buf)
-end
-
---- Update neural network weights based on user selection (with optional latency tracking)
----@param selected_item NeuralOpenItem
----@param ranked_items NeuralOpenItem[]
----@param latency_ctx? table Optional latency context
-function M.update_weights(selected_item, ranked_items, latency_ctx)
-  return update_weights_impl(state, selected_item, ranked_items, latency_ctx)
-end
-
---- Generate debug view for neural network algorithm
----@param item NeuralOpenItem
----@param all_items NeuralOpenItem[]?
----@return string[], table[]
-function M.debug_view(item, all_items)
-  return debug_view_impl(state, item, all_items)
-end
-
---- Get algorithm name
----@return AlgorithmName
-function M.get_name()
-  return "nn"
-end
-
---- Initialize algorithm
----@param config NosNNConfig
-function M.init(config)
-  init_state(state, config)
-end
-
---- Load the latest weights from the weights module
-function M.load_weights()
-  return load_weights_impl(state)
+  ---@diagnostic disable-next-line: undefined-field
+  if _G._TEST then
+    instance._get_training_history = function()
+      return st.training_history
+    end
+    instance._get_weights = function()
+      return st.weights
+    end
+    instance._get_stats = function()
+      return st.stats
+    end
+    instance._get_optimizer_state = function()
+      return st.optimizer_state
+    end
+    instance._forward_pass = function(input)
+      return forward_pass(
+        input,
+        st.weights,
+        st.biases,
+        st.gammas,
+        st.betas,
+        st.running_means,
+        st.running_vars,
+        false, -- inference mode
+        nil, -- no dropout
+        false, -- return sigmoid output
+        st.stats
+      )
+    end
+    instance._features_to_input = features_to_input
+  end
+  return instance
 end
 
 -- Testing helpers (only available in test environment)
 ---@diagnostic disable-next-line: undefined-field
 if _G._TEST then
-  function M._get_training_history()
-    return state.training_history
-  end
-
-  function M._get_weights()
-    return state.weights
-  end
-
-  function M._get_stats()
-    return state.stats
-  end
-
-  function M._get_optimizer_state()
-    return state.optimizer_state
-  end
-
-  function M._forward_pass(input)
-    return forward_pass(
-      input,
-      state.weights,
-      state.biases,
-      state.gammas,
-      state.betas,
-      state.running_means,
-      state.running_vars,
-      false, -- inference mode
-      nil, -- no dropout
-      false, -- return sigmoid output
-      state.stats
-    )
-  end
-
-  M._features_to_input = features_to_input
-
   function M._reset_states()
     states = {}
   end

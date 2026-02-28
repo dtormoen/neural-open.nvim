@@ -110,9 +110,11 @@ describe("scoring pipeline regression", function()
 
     package.loaded["neural-open.algorithms.nn"] = nil
     local nn = require("neural-open.algorithms.nn")
-    nn.init(neural_open.config.algorithm_config.nn)
-    nn.load_weights()
-    algorithms.nn = nn
+    local nn_config = vim.deepcopy(neural_open.config.algorithm_config.nn)
+    nn_config.picker_name = "test"
+    local nn_instance = nn.create_instance(nn_config)
+    nn_instance.load_weights()
+    algorithms.nn = nn_instance
 
     local classic = require("neural-open.algorithms.classic")
     classic.init(neural_open.config.algorithm_config.classic)

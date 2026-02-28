@@ -3,6 +3,7 @@ local helpers = require("tests.helpers")
 describe("scoring pipeline regression", function()
   local scorer
   local nn
+  local nn_instance
 
   -- Feature order must match scorer.FEATURE_NAMES
   local FEATURE_ORDER = {
@@ -48,8 +49,9 @@ describe("scoring pipeline regression", function()
       match_dropout = 0,
       warmup_steps = 0,
       dropout_rates = { 0 },
+      picker_name = "test",
     })
-    nn.init(config.algorithm_config.nn)
+    nn_instance = nn.create_instance(config.algorithm_config.nn)
   end)
 
   describe("normalize_features formulas", function()
@@ -186,7 +188,7 @@ describe("scoring pipeline regression", function()
     end)
   end)
 
-  describe("normalize + nn.calculate_score pipeline", function()
+  describe("normalize + calculate_score pipeline", function()
     it("is deterministic: same raw_features produce same score", function()
       local raw = {
         match = 150,
@@ -203,8 +205,8 @@ describe("scoring pipeline regression", function()
 
       local norm = scorer.normalize_features(raw)
       local input_buf = features_to_flat(norm)
-      local score1 = nn.calculate_score(input_buf)
-      local score2 = nn.calculate_score(input_buf)
+      local score1 = nn_instance.calculate_score(input_buf)
+      local score2 = nn_instance.calculate_score(input_buf)
 
       assert.is_number(score1)
       assert.near(score1, score2, 1e-10)
@@ -226,7 +228,7 @@ describe("scoring pipeline regression", function()
 
       local norm = scorer.normalize_features(raw)
       local input_buf = features_to_flat(norm)
-      local score = nn.calculate_score(input_buf)
+      local score = nn_instance.calculate_score(input_buf)
 
       assert.is_true(score >= 0, "score should be >= 0, got " .. score)
       assert.is_true(score <= 100, "score should be <= 100, got " .. score)
@@ -304,11 +306,11 @@ describe("scoring pipeline regression", function()
         norm.transition,
         norm.not_current,
       }
-      local score = nn.calculate_score(input_buf)
+      local score = nn_instance.calculate_score(input_buf)
 
       -- Build the same input_buf via the helper and verify identical result
       local input_buf2 = features_to_flat(norm)
-      local score2 = nn.calculate_score(input_buf2)
+      local score2 = nn_instance.calculate_score(input_buf2)
 
       assert.are.near(score, score2, 1e-10)
     end)
@@ -371,10 +373,10 @@ describe("scoring pipeline regression", function()
       for i, raw in ipairs(test_vectors) do
         local norm = scorer.normalize_features(raw)
         local input_buf = features_to_flat(norm)
-        local score = nn.calculate_score(input_buf)
+        local score = nn_instance.calculate_score(input_buf)
 
         -- Re-score with same input to verify determinism
-        local score2 = nn.calculate_score(input_buf)
+        local score2 = nn_instance.calculate_score(input_buf)
 
         assert.are.near(score, score2, 1e-10, "non-deterministic on vector " .. i)
         assert.is_true(score >= 0 and score <= 100, "score out of range on vector " .. i)
@@ -427,7 +429,7 @@ describe("scoring pipeline regression", function()
       -- Path 1: normalize_features → features_to_flat → calculate_score
       local norm = scorer.normalize_features(raw)
       local input_buf_from_norm = features_to_flat(norm)
-      local score_from_norm = nn.calculate_score(input_buf_from_norm)
+      local score_from_norm = nn_instance.calculate_score(input_buf_from_norm)
 
       -- Path 2: simulate on_match_handler - pre-fill static features at transform time,
       -- then update dynamic slots [1..3] per keystroke using scorer helpers
@@ -448,7 +450,7 @@ describe("scoring pipeline regression", function()
       input_buf[2] = scorer.normalize_match_score(raw.virtual_name)
       input_buf[3] = scorer.normalize_frecency(raw.frecency)
 
-      local score_from_buf = nn.calculate_score(input_buf)
+      local score_from_buf = nn_instance.calculate_score(input_buf)
 
       assert.are.near(score_from_norm, score_from_buf, 1e-10)
     end)
