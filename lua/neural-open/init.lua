@@ -44,6 +44,38 @@ M.config = {
       margin = 1.0, -- Margin for pairwise hinge loss
     },
   },
+  item_algorithm_config = {
+    classic = {
+      learning_rate = 0.6,
+      default_weights = {
+        match = 140,
+        frecency = 17,
+        cwd_frecency = 15,
+        recency = 9,
+        cwd_recency = 8,
+        text_length_inv = 3,
+        not_last_selected = 2,
+      },
+    },
+    naive = {},
+    nn = {
+      architecture = { 7, 16, 8, 1 }, -- 7 inputs for item features
+      optimizer = "adamw",
+      learning_rate = 0.001,
+      batch_size = 128,
+      history_size = 2000,
+      batches_per_update = 5,
+      weight_decay = 0.0001,
+      dropout_rates = { 0, 0.25 },
+      warmup_steps = 10,
+      warmup_start_factor = 0.1,
+      adam_beta1 = 0.9,
+      adam_beta2 = 0.999,
+      adam_epsilon = 1e-8,
+      match_dropout = 0.25,
+      margin = 1.0,
+    },
+  },
   weights_path = vim.fn.stdpath("data") .. "/neural-open/",
   special_files = {
     ["__init__.py"] = true,

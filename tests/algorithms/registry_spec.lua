@@ -158,4 +158,57 @@ describe("algorithm registry", function()
       assert.are.equal("Classic", algorithm.get_name())
     end)
   end)
+
+  describe("get_algorithm_for_picker", function()
+    it("injects picker_name into the config passed to init", function()
+      local received_config = nil
+      package.loaded["neural-open.algorithms.nn"].init = function(cfg)
+        received_config = cfg
+      end
+
+      local algo_config = {
+        nn = { architecture = { 7, 16, 8, 1 }, optimizer = "adamw" },
+      }
+      registry.get_algorithm_for_picker("nn", algo_config, "just_recipes")
+
+      assert.is_not_nil(received_config)
+      assert.equals("just_recipes", received_config.picker_name)
+      assert.same({ 7, 16, 8, 1 }, received_config.architecture)
+    end)
+
+    it("deep copies config to prevent mutation of the original", function()
+      package.loaded["neural-open.algorithms.classic"].init = function(cfg)
+        cfg.mutated = true
+      end
+
+      local algo_config = {
+        classic = { learning_rate = 0.5 },
+      }
+      registry.get_algorithm_for_picker("classic", algo_config, "test")
+
+      assert.is_nil(algo_config.classic.mutated)
+    end)
+
+    it("falls back to classic for invalid algorithm name", function()
+      registry.get_algorithm_for_picker("invalid", { invalid = {} }, "test")
+      -- Should not error; falls back to classic
+    end)
+
+    it("merges extra_config into the algorithm config", function()
+      local received_config = nil
+      package.loaded["neural-open.algorithms.classic"].init = function(cfg)
+        received_config = cfg
+      end
+
+      local algo_config = {
+        classic = { learning_rate = 0.6 },
+      }
+      local extra = { feature_names = { "match", "frecency" } }
+      registry.get_algorithm_for_picker("classic", algo_config, "test", extra)
+
+      assert.same({ "match", "frecency" }, received_config.feature_names)
+      assert.equals("test", received_config.picker_name)
+      assert.equals(0.6, received_config.learning_rate)
+    end)
+  end)
 end)

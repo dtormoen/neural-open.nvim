@@ -11,7 +11,7 @@ Use the @justfile commands.
 
 Always make sure all `just precommit` checks pass before checking in code.
 
-When making changes to the scoring hot path (`scorer.lua`, `nn.lua` inference, `source.lua` transform), run
+When making changes to the scoring hot path (`scorer.lua`, `item_scorer.lua`, `nn.lua` inference, `source.lua` transform, `item_source.lua` transform), run
 `just benchmark` before and after to measure per-keystroke latency impact.
 Results are documented in `docs/benchmark-results.md`.
 
@@ -27,6 +27,8 @@ Results are documented in `docs/benchmark-results.md`.
 - **`recent.lua`**: File-path-based recency tracking with in-memory cache and debounced disk writes
 - **`item_tracking.lua`**: Generic frecency and recency tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Data persisted under `item_tracking` key in each picker's JSON file
 - **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
+- **`item_scorer.lua`**: 7-feature scoring pipeline for non-file item pickers. Owns `ITEM_FEATURE_NAMES` (canonical feature ordering: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected), normalization functions, and allocation-free `on_match_handler`. Parallel to `scorer.lua`
+- **`item_source.lua`**: Context capture and per-item transform for non-file item pickers. Loads item tracking data, initializes algorithm via `registry.get_algorithm_for_picker`, computes static features. Parallel to `source.lua`
 - **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker stores weights in `<weights_dir>/<picker_name>.json`
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
 
@@ -36,15 +38,15 @@ See @lua/neural-open/types.lua for critical types.
 
 IMPORTANT: ensure that types are always up to date. Try to make types non-optional when possible.
 
-The plugin uses a dedicated `nos` field on picker items to encapsulate all neural-open specific data:
-- **raw_features**: Original computed feature scores in their native units
-- **neural_score**: Total weighted score combining all features
-- **normalized_path**: Cached normalized absolute path for consistent file comparison
-- **is_open_buffer**, **is_alternate**: Buffer state flags
-- **recent_rank**: Position in persistent recency list (1-based)
-- **virtual_name**: Cached virtual name for special files (e.g., index.js -> parent/index.js)
-- **input_buf**: Pre-allocated flat array of 11 normalized features used by all algorithms. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
-- **ctx**: Reference to shared session context (contains cwd, current_file, current_file_dir, current_file_depth, current_file_trigrams, current_file_trigrams_size, recent_files, alternate_buf)
+The plugin uses a dedicated `nos` field on picker items to encapsulate all neural-open specific data. File pickers use `NosItemData` (11 features), item pickers use `NosItemPickerData` (7 features). See `types.lua` for full definitions.
+
+**File picker `nos` field** (`NosItemData`):
+- **input_buf**: Pre-allocated flat array of 11 normalized features. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
+- **raw_features**, **neural_score**, **normalized_path**, **virtual_name**, **is_open_buffer**, **is_alternate**, **recent_rank**, **ctx** (NosContext)
+
+**Item picker `nos` field** (`NosItemPickerData`):
+- **input_buf**: Pre-allocated flat array of 7 normalized features. Only match is dynamic (updated per keystroke). Feature order defined by `ITEM_FEATURE_NAMES` in `item_scorer.lua`.
+- **raw_features**, **neural_score**, **item_id**, **ctx** (NosItemContext)
 
 This structure provides clean separation between plugin-specific data and native Snacks picker fields. All algorithms use a unified scoring pipeline: raw_features → input_buf (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → `calculate_score(input_buf)` → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Classic pre-computes a positional weight array at weight-load time for a dot-product hot path. `scorer.normalize_features()` is retained as a utility for debug views and weight learning.
 
@@ -93,7 +95,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
     - More robust to hyperparameter choices
     - Better convergence on diverse datasets
     - Recommended for most users
-    - Includes learning rate warmup (100 steps by default) for training stability
+    - Includes learning rate warmup (10 steps by default) for training stability
 - **State Persistence**: Network weights, optimizer state (moments for AdamW), training history, ranking accuracy metrics, and format version
 - **Ranking Accuracy Metrics**: Tracks percentage of correctly ranked pairs over time
   - **Correct Ranking**: Percentage of pairs where score_pos > score_neg
@@ -104,7 +106,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 - **Learning Rate**: Default 0.001 for AdamW (adaptive to gradient distribution changes)
 - **Warmup**: Optional learning rate warmup to stabilize early training
   - Linearly increases learning rate from 10% to 100% over first N steps
-  - Enabled by default for AdamW (100 steps)
+  - Enabled by default for AdamW (10 steps)
   - Helps mitigate bias correction amplification in AdamW
 - **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`state.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Always call `prepare_inference_cache()` after modifying `state.weights`, `state.biases`, `state.gammas`, `state.betas`, `state.running_means`, or `state.running_vars`.
 - **Input-Size Migration**: Automatically expands the first layer when new features are added (e.g., 10 to 11 inputs), using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history with heuristic values. Users are notified of the upgrade.
@@ -288,6 +290,7 @@ The plugin is highly configurable with settings for:
 - **Learning rate adjustments**: Per-algorithm learning rate configuration
 - **Database location and persistence**: Configurable storage directory for per-picker weight files (`weights_path`)
 - **Scoring weights and factors**: Customizable feature weights for Classic algorithm
+- **Item picker algorithm config**: Separate algorithm configurations for non-file pickers via `item_algorithm_config` (7-feature pipeline: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected). Default NN architecture is `{7, 16, 8, 1}`
 - **File ignore patterns**: Exclude files from picker
 - **Performance limits**: max_results to control picker size
 - **Regularization**: Weight decay, dropout rates, match_dropout, layer-specific decay multipliers for Neural Network

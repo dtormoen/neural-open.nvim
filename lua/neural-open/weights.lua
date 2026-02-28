@@ -13,12 +13,19 @@ local function ensure_db()
   return weights_db
 end
 
---- Get default weights for an algorithm from main config
+--- Get default weights for an algorithm from main config.
+--- Uses item_algorithm_config for non-file pickers when available.
 ---@param algorithm_name AlgorithmName
----@return table
-function M.get_default_weights(algorithm_name)
+---@param picker_name? string Picker name (default "files")
+---@return table?
+function M.get_default_weights(algorithm_name, picker_name)
   local config = require("neural-open").config
-  return config.algorithm_config[algorithm_name].default_weights
+  local algo_config = config.algorithm_config
+  if picker_name and picker_name ~= "files" and config.item_algorithm_config then
+    algo_config = config.item_algorithm_config
+  end
+  local entry = algo_config and algo_config[algorithm_name]
+  return entry and entry.default_weights
 end
 
 --- Load weights for a specific algorithm from database
@@ -40,7 +47,7 @@ function M.get_weights(algorithm_name, picker_name)
 
   -- If weights are empty, initialize with defaults
   if vim.tbl_isempty(algorithm_weights) then
-    local defaults = M.get_default_weights(algorithm_name)
+    local defaults = M.get_default_weights(algorithm_name, picker_name)
     if defaults then
       algorithm_weights = vim.deepcopy(defaults)
     end

@@ -1138,7 +1138,7 @@ local function ensure_weights(force_reload)
 
     -- Try to load from storage first
     local weights_module = require("neural-open.weights")
-    local algorithm_weights = weights_module.get_weights("nn")
+    local algorithm_weights = weights_module.get_weights("nn", state.config and state.config.picker_name)
 
     if algorithm_weights and algorithm_weights.nn then
       -- Load network weights
@@ -1499,7 +1499,7 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
       optimizer_type = state.optimizer_type,
       optimizer_state = state.optimizer_state,
     },
-  }, latency_ctx)
+  }, latency_ctx, state.config and state.config.picker_name)
   latency.finish(latency_ctx, "nn.save_weights")
 end
 

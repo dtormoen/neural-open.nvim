@@ -8,18 +8,19 @@ local current_weights = nil
 local weight_buf = nil -- Positional weight array in FEATURE_NAMES order
 
 --- Get default weights for display purposes
----@return table
+---@return table?
 local function get_default_weights()
-  return require("neural-open.weights").get_default_weights("classic")
+  return require("neural-open.weights").get_default_weights("classic", config and config.picker_name)
 end
 
---- Rebuild positional weight_buf from named weights in FEATURE_NAMES order.
+--- Rebuild positional weight_buf from named weights in feature name order.
+--- Uses config.feature_names if set (for item pickers), else scorer.FEATURE_NAMES (file picker).
 --- Must only be called after current_weights has been assigned.
 local function rebuild_weight_buf()
   local weights = current_weights --[[@as table]]
-  local FEATURE_NAMES = scorer.FEATURE_NAMES
+  local feature_names = (config and config.feature_names) or scorer.FEATURE_NAMES
   weight_buf = {}
-  for i, name in ipairs(FEATURE_NAMES) do
+  for i, name in ipairs(feature_names) do
     weight_buf[i] = weights[name] or 0
   end
 end
@@ -29,7 +30,7 @@ end
 ---@param force_reload boolean? Force reload weights even if already loaded
 local function ensure_weights(force_reload)
   if not current_weights or force_reload then
-    current_weights = require("neural-open.weights").get_weights("classic")
+    current_weights = require("neural-open.weights").get_weights("classic", config and config.picker_name)
     -- Backfill any new features from defaults that are missing in saved weights
     if config and config.default_weights then
       for key, value in pairs(config.default_weights) do
@@ -69,9 +70,9 @@ end
 ---@return table<string, number>
 local function calculate_components(input_buf)
   local weights = ensure_weights()
-  local FEATURE_NAMES = scorer.FEATURE_NAMES
+  local feature_names = (config and config.feature_names) or scorer.FEATURE_NAMES
   local components = {}
-  for i, name in ipairs(FEATURE_NAMES) do
+  for i, name in ipairs(feature_names) do
     if weights[name] then
       components[name] = input_buf[i] * weights[name]
     end
@@ -199,7 +200,7 @@ local function apply_adjustments(adjustments, apply)
 
     -- Format changes for notification
     local formatted_changes = {}
-    local default_weights = get_default_weights()
+    local default_weights = get_default_weights() or {}
     for key, change in pairs(changes) do
       local default_val = default_weights[key] or 0
       formatted_changes[key] = string.format("%.2f → %.2f (default: %.2f)", change.old, change.new, default_val)
@@ -224,7 +225,7 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
   -- Save updated weights if changed
   if has_changes then
     local weights_module = require("neural-open.weights")
-    weights_module.save_weights("classic", new_weights, latency_ctx)
+    weights_module.save_weights("classic", new_weights, latency_ctx, config and config.picker_name)
   end
 end
 
@@ -278,8 +279,13 @@ function M.debug_view(item, all_items)
     table.insert(lines, "")
 
     -- Features table (raw + normalized)
-    local all_features = scorer.FEATURE_NAMES
-    local normalized_features = item.nos.input_buf and scorer.input_buf_to_features(item.nos.input_buf) or {}
+    local all_features = (config and config.feature_names) or scorer.FEATURE_NAMES
+    local normalized_features = {}
+    if item.nos.input_buf then
+      for i, name in ipairs(all_features) do
+        normalized_features[name] = item.nos.input_buf[i]
+      end
+    end
 
     local features_rows = { { "Features:", "Raw", "Normalized" } }
     for _, name in ipairs(all_features) do
@@ -314,7 +320,7 @@ function M.debug_view(item, all_items)
       local name = comp.name
       local normalized = normalized_features[name] or 0
       local weight = weights[name] or 0
-      local default_weights = get_default_weights()
+      local default_weights = get_default_weights() or {}
       local default_weight = default_weights[name] or 0
       table.insert(weighted_rows, {
         fmt.format_feature_name(name),

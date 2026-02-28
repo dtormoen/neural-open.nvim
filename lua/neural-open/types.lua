@@ -72,6 +72,8 @@
 ---@class NosClassicConfig
 ---@field learning_rate number Learning rate for weight adjustments (0-1)
 ---@field default_weights table<string, number> Default weights for scoring features
+---@field picker_name? string Picker name for weight file isolation (set by registry)
+---@field feature_names? string[] Feature name ordering for positional weight mapping (set by item_source for item pickers)
 
 ---@class NosNaiveConfig
 --- No configuration needed for naive algorithm
@@ -95,6 +97,7 @@
 ---@field warmup_start_factor? number Starting learning rate factor for warmup (default 0.1)
 ---@field match_dropout? number Dropout rate for match/virtual_name features during training (default 0.25)
 ---@field margin? number Margin for pairwise hinge loss (default 1.0)
+---@field picker_name? string Picker name for weight file isolation (set by registry)
 
 ---@class NosAlgorithmConfig
 ---@field classic NosClassicConfig Configuration for classic algorithm
@@ -124,9 +127,43 @@
 ---@field cwd_recency_rank table<string, number> CWD-scoped recency ranks: item_id -> 1-based position
 ---@field last_selected string? Most recently selected item id (global)
 
+--- Raw feature scores for item pickers (7 features)
+---@class NosItemRawFeatures
+---@field match number Raw fuzzy match score from matcher (typically 0-200+)
+---@field frecency number Raw global frecency score from item_tracking (0-∞)
+---@field cwd_frecency number Raw CWD-scoped frecency score from item_tracking (0-∞)
+---@field recency number Raw global recency rank (1-based position in recency list, 0 if unranked)
+---@field cwd_recency number Raw CWD-scoped recency rank (1-based, 0 if unranked)
+---@field text_length_inv number Raw text length (used to compute inverse normalization)
+---@field not_last_selected number Binary: 1 if NOT the most recently selected item, 0 if it is
+
+--- Session context for item pickers
+---@class NosItemContext
+---@field cwd string Current working directory
+---@field algorithm Algorithm The scoring algorithm instance for this session
+---@field tracking_data NosItemTrackingData Preloaded tracking data for feature computation
+---@field picker_name string Name of the picker (for weight isolation)
+
+--- Neural-open data attached to item picker items (the item.nos field)
+---@class NosItemPickerData
+---@field raw_features NosItemRawFeatures Raw computed feature scores (7 features)
+---@field neural_score number Total weighted score
+---@field item_id string Item identity (item.value or item.text)
+---@field input_buf number[] Pre-allocated flat array of 7 normalized features
+---@field ctx NosItemContext Reference to shared session context
+
+--- Item picker item with neural-open data
+---@class NosItemPickerItem: snacks.picker.Item
+---@field text string Display text for the item
+---@field value string? Optional distinct value (identity defaults to text if not set)
+---@field desc string? Optional description
+---@field nos NosItemPickerData Neural-open specific data
+---@field neural_rank? number Used during weight learning
+
 ---@class NosConfig
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
----@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations
+---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations for file pickers
+---@field item_algorithm_config NosAlgorithmConfig? Algorithm-specific configurations for item pickers (7-feature pipeline)
 ---@field weights_path string Directory path to store learned weights (per-picker JSON files)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)
