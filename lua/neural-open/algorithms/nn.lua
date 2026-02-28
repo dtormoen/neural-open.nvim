@@ -3,34 +3,80 @@ local nn_core = require("neural-open.algorithms.nn_core")
 local math_exp = math.exp
 local M = {}
 
--- Module state
-local state = {
-  config = nil,
-  weights = nil,
-  biases = nil,
-  gammas = nil, -- Batch norm scale parameters
-  betas = nil, -- Batch norm shift parameters
-  running_means = nil, -- Batch norm running means for inference
-  running_vars = nil, -- Batch norm running variances for inference
-  training_history = nil,
-  dropout_masks = nil, -- Store dropout masks for backward pass
-  optimizer_type = "sgd", -- Current optimizer type
-  optimizer_state = nil, -- Optimizer-specific state (lazy initialized)
-  inference_cache = nil, -- Fused weights/biases for fast inference
-  stats = {
-    samples_processed = 0,
-    batches_trained = 0,
-    last_loss = 0,
-    loss_history = {},
-    ranking_accuracy_history = {}, -- Circular buffer of {correct, margin_correct, total} per batch
-    samples_per_batch = 0,
-    weight_norms = {}, -- L2 norms of weights per layer
-    avg_weight_magnitudes = {}, -- Average weight magnitude per layer
-    dropout_active_rates = {}, -- Percentage of active neurons per layer during training
-    batch_timings = {}, -- Circular buffer of last 10 batch timings {forward_ms, backward_ms, update_ms}
-    avg_batch_timing = nil, -- Average timing of last 10 batches
-  },
-}
+local states = {} -- picker_name -> state table
+
+--- Create a fresh state table with default values
+local function new_state()
+  return {
+    config = nil,
+    weights = nil,
+    biases = nil,
+    gammas = nil, -- Batch norm scale parameters
+    betas = nil, -- Batch norm shift parameters
+    running_means = nil, -- Batch norm running means for inference
+    running_vars = nil, -- Batch norm running variances for inference
+    training_history = nil,
+    dropout_masks = nil, -- Store dropout masks for backward pass
+    optimizer_type = "sgd", -- Current optimizer type
+    optimizer_state = nil, -- Optimizer-specific state (lazy initialized)
+    inference_cache = nil, -- Fused weights/biases for fast inference
+    stats = {
+      samples_processed = 0,
+      batches_trained = 0,
+      last_loss = 0,
+      loss_history = {},
+      ranking_accuracy_history = {}, -- Circular buffer of {correct, margin_correct, total} per batch
+      samples_per_batch = 0,
+      weight_norms = {}, -- L2 norms of weights per layer
+      avg_weight_magnitudes = {}, -- Average weight magnitude per layer
+      dropout_active_rates = {}, -- Percentage of active neurons per layer during training
+      batch_timings = {}, -- Circular buffer of last 10 batch timings {forward_ms, backward_ms, update_ms}
+      avg_batch_timing = nil, -- Average timing of last 10 batches
+    },
+  }
+end
+
+--- Initialize a state table with configuration (validation + setup)
+local function init_state(st, config)
+  st.config = vim.deepcopy(config or {})
+
+  if not st.config.architecture then
+    error("NN algorithm: config.architecture is required")
+  end
+  if not st.config.optimizer then
+    error("NN algorithm: config.optimizer is required")
+  end
+
+  st.optimizer_type = st.config.optimizer
+
+  if st.optimizer_type ~= "sgd" and st.optimizer_type ~= "adamw" then
+    error(string.format("Invalid optimizer type: %s. Must be 'sgd' or 'adamw'", st.optimizer_type))
+  end
+
+  if st.config.dropout_rates then
+    local hidden_layer_count = #st.config.architecture - 2
+    if #st.config.dropout_rates ~= hidden_layer_count then
+      error(
+        string.format(
+          "Dropout rates array length (%d) must match number of hidden layers (%d)",
+          #st.config.dropout_rates,
+          hidden_layer_count
+        )
+      )
+    end
+
+    for i, rate in ipairs(st.config.dropout_rates) do
+      if rate < 0 or rate >= 1 then
+        error(string.format("Dropout rate for layer %d must be in [0, 1) range, got %.2f", i, rate))
+      end
+    end
+  end
+
+  math.randomseed(os.time())
+end
+
+-- Module state (used by legacy M.* API)
+local state = new_state()
 
 --- Forward propagation through the network with batch normalization and dropout
 --- Uses Leaky ReLU activation (alpha=0.01) for all hidden layers to prevent dying neurons
@@ -46,6 +92,7 @@ local state = {
 ---@param training boolean Whether in training mode (compute batch stats) or inference
 ---@param dropout_rates table? Dropout rates for each hidden layer
 ---@param return_logits boolean? If true, output layer returns logits instead of sigmoid (for training)
+---@param stats table? Stats table for tracking dropout statistics
 ---@return table activations, table pre_activations, table bn_cache, table dropout_masks
 local function forward_pass(
   input,
@@ -57,7 +104,8 @@ local function forward_pass(
   running_vars,
   training,
   dropout_rates,
-  return_logits
+  return_logits,
+  stats
 )
   local activations = { input }
   local pre_activations = {}
@@ -106,7 +154,7 @@ local function forward_pass(
         activation, dropout_masks[i] = nn_core.dropout(activation, dropout_rates[i], true)
 
         -- Track dropout statistics
-        if state and state.stats then
+        if stats then
           local active_count = 0
           local total_count = 0
           for row = 1, #dropout_masks[i] do
@@ -118,17 +166,17 @@ local function forward_pass(
             end
           end
           -- Ensure the array is properly initialized
-          if not state.stats.dropout_active_rates then
-            state.stats.dropout_active_rates = {}
+          if not stats.dropout_active_rates then
+            stats.dropout_active_rates = {}
           end
-          state.stats.dropout_active_rates[i] = (active_count / total_count) * 100
+          stats.dropout_active_rates[i] = (active_count / total_count) * 100
         end
-      elseif state and state.stats and training then
+      elseif stats and training then
         -- Initialize with 0 for layers without dropout to prevent nils
-        if not state.stats.dropout_active_rates then
-          state.stats.dropout_active_rates = {}
+        if not stats.dropout_active_rates then
+          stats.dropout_active_rates = {}
         end
-        state.stats.dropout_active_rates[i] = 0
+        stats.dropout_active_rates[i] = 0
       end
     else
       -- Output layer: return logits for training, sigmoid for inference
@@ -153,6 +201,7 @@ end
 ---@param gammas table? Batch norm scale parameters
 ---@param bn_cache table? Batch norm cache from forward pass
 ---@param dropout_masks table? Dropout masks from forward pass
+---@param config_dropout_rates table? Dropout rates from config
 ---@return table weight_gradients, table bias_gradients, table gamma_gradients, table beta_gradients
 local function backward_pass_pairwise(
   activations,
@@ -161,7 +210,8 @@ local function backward_pass_pairwise(
   weights,
   gammas,
   bn_cache,
-  dropout_masks
+  dropout_masks,
+  config_dropout_rates
 )
   local weight_gradients = {}
   local bias_gradients = {}
@@ -190,7 +240,7 @@ local function backward_pass_pairwise(
     if i < #weights then
       -- Apply dropout mask if present
       if dropout_masks and dropout_masks[i] then
-        local dropout_rate = state.config.dropout_rates and state.config.dropout_rates[i] or 0
+        local dropout_rate = config_dropout_rates and config_dropout_rates[i] or 0
         if dropout_rate > 0 then
           local scale = 1.0 / (1.0 - dropout_rate)
           current_delta = nn_core.hadamard(current_delta, dropout_masks[i])
@@ -321,6 +371,7 @@ local function init_optimizer_state(optimizer_type, architecture)
 end
 
 --- Update weights using SGD optimizer
+---@param st table State table
 ---@param weights table Current weights
 ---@param biases table Current biases
 ---@param weight_gradients table Weight gradients
@@ -332,6 +383,7 @@ end
 ---@param learning_rate number Learning rate
 ---@param config table Configuration with weight_decay settings
 local function update_parameters_sgd(
+  st,
   weights,
   biases,
   weight_gradients,
@@ -344,13 +396,13 @@ local function update_parameters_sgd(
   config
 )
   -- Initialize optimizer state if needed (for timestep tracking in warmup)
-  if not state.optimizer_state then
-    state.optimizer_state = { timestep = 0 }
+  if not st.optimizer_state then
+    st.optimizer_state = { timestep = 0 }
   end
 
   -- Increment timestep
-  state.optimizer_state.timestep = state.optimizer_state.timestep + 1
-  local t = state.optimizer_state.timestep
+  st.optimizer_state.timestep = st.optimizer_state.timestep + 1
+  local t = st.optimizer_state.timestep
 
   -- Apply learning rate warmup
   local warmup_steps = config.warmup_steps or 0
@@ -386,9 +438,9 @@ local function update_parameters_sgd(
   end
 
   -- Calculate and store weight statistics
-  if state and state.stats then
-    state.stats.weight_norms = {}
-    state.stats.avg_weight_magnitudes = {}
+  if st.stats then
+    st.stats.weight_norms = {}
+    st.stats.avg_weight_magnitudes = {}
     for i = 1, #weights do
       local sum_squared = 0
       local sum_abs = 0
@@ -400,13 +452,14 @@ local function update_parameters_sgd(
           count = count + 1
         end
       end
-      state.stats.weight_norms[i] = math.sqrt(sum_squared)
-      state.stats.avg_weight_magnitudes[i] = sum_abs / count
+      st.stats.weight_norms[i] = math.sqrt(sum_squared)
+      st.stats.avg_weight_magnitudes[i] = sum_abs / count
     end
   end
 end
 
 --- Update weights using AdamW optimizer
+---@param st table State table
 ---@param weights table Current weights
 ---@param biases table Current biases
 ---@param weight_gradients table Weight gradients
@@ -418,6 +471,7 @@ end
 ---@param learning_rate number Learning rate
 ---@param config table Configuration with AdamW settings
 local function update_parameters_adamw(
+  st,
   weights,
   biases,
   weight_gradients,
@@ -434,13 +488,13 @@ local function update_parameters_adamw(
   local epsilon = config.adam_epsilon or 1e-8
 
   -- Initialize optimizer state if needed
-  if not state.optimizer_state then
-    state.optimizer_state = init_optimizer_state("adamw", config.architecture)
+  if not st.optimizer_state then
+    st.optimizer_state = init_optimizer_state("adamw", config.architecture)
   end
 
   -- Increment timestep
-  state.optimizer_state.timestep = state.optimizer_state.timestep + 1
-  local t = state.optimizer_state.timestep
+  st.optimizer_state.timestep = st.optimizer_state.timestep + 1
+  local t = st.optimizer_state.timestep
 
   -- Apply learning rate warmup
   local warmup_steps = config.warmup_steps or 0
@@ -455,8 +509,8 @@ local function update_parameters_adamw(
   -- Update each layer
   for i = 1, #weights do
     -- Get moments for weights
-    local m_w = state.optimizer_state.moments.first.weights[i]
-    local v_w = state.optimizer_state.moments.second.weights[i]
+    local m_w = st.optimizer_state.moments.first.weights[i]
+    local v_w = st.optimizer_state.moments.second.weights[i]
 
     -- Update first moment: m = β1 * m + (1 - β1) * g
     m_w = nn_core.add(nn_core.scalar_mul(m_w, beta1), nn_core.scalar_mul(weight_gradients[i], 1 - beta1))
@@ -493,12 +547,12 @@ local function update_parameters_adamw(
     weights[i] = nn_core.subtract(weights[i], nn_core.scalar_mul(update, effective_lr))
 
     -- Store updated moments
-    state.optimizer_state.moments.first.weights[i] = m_w
-    state.optimizer_state.moments.second.weights[i] = v_w
+    st.optimizer_state.moments.first.weights[i] = m_w
+    st.optimizer_state.moments.second.weights[i] = v_w
 
     -- Update biases
-    local m_b = state.optimizer_state.moments.first.biases[i]
-    local v_b = state.optimizer_state.moments.second.biases[i]
+    local m_b = st.optimizer_state.moments.first.biases[i]
+    local v_b = st.optimizer_state.moments.second.biases[i]
 
     m_b = nn_core.add(nn_core.scalar_mul(m_b, beta1), nn_core.scalar_mul(bias_gradients[i], 1 - beta1))
 
@@ -519,13 +573,13 @@ local function update_parameters_adamw(
 
     biases[i] = nn_core.subtract(biases[i], nn_core.scalar_mul(b_update, effective_lr))
 
-    state.optimizer_state.moments.first.biases[i] = m_b
-    state.optimizer_state.moments.second.biases[i] = v_b
+    st.optimizer_state.moments.first.biases[i] = m_b
+    st.optimizer_state.moments.second.biases[i] = v_b
 
     -- Update batch norm parameters if present
     if gammas and gammas[i] and gamma_gradients and gamma_gradients[i] then
-      local m_g = state.optimizer_state.moments.first.gammas[i]
-      local v_g = state.optimizer_state.moments.second.gammas[i]
+      local m_g = st.optimizer_state.moments.first.gammas[i]
+      local v_g = st.optimizer_state.moments.second.gammas[i]
 
       m_g = nn_core.add(nn_core.scalar_mul(m_g, beta1), nn_core.scalar_mul(gamma_gradients[i], 1 - beta1))
 
@@ -546,13 +600,13 @@ local function update_parameters_adamw(
 
       gammas[i] = nn_core.subtract(gammas[i], nn_core.scalar_mul(g_update, effective_lr))
 
-      state.optimizer_state.moments.first.gammas[i] = m_g
-      state.optimizer_state.moments.second.gammas[i] = v_g
+      st.optimizer_state.moments.first.gammas[i] = m_g
+      st.optimizer_state.moments.second.gammas[i] = v_g
     end
 
     if betas and betas[i] and beta_gradients and beta_gradients[i] then
-      local m_beta = state.optimizer_state.moments.first.betas[i]
-      local v_beta = state.optimizer_state.moments.second.betas[i]
+      local m_beta = st.optimizer_state.moments.first.betas[i]
+      local v_beta = st.optimizer_state.moments.second.betas[i]
 
       m_beta = nn_core.add(nn_core.scalar_mul(m_beta, beta1), nn_core.scalar_mul(beta_gradients[i], 1 - beta1))
 
@@ -573,15 +627,15 @@ local function update_parameters_adamw(
 
       betas[i] = nn_core.subtract(betas[i], nn_core.scalar_mul(beta_update, effective_lr))
 
-      state.optimizer_state.moments.first.betas[i] = m_beta
-      state.optimizer_state.moments.second.betas[i] = v_beta
+      st.optimizer_state.moments.first.betas[i] = m_beta
+      st.optimizer_state.moments.second.betas[i] = v_beta
     end
   end
 
   -- Calculate and store weight statistics
-  if state and state.stats then
-    state.stats.weight_norms = {}
-    state.stats.avg_weight_magnitudes = {}
+  if st.stats then
+    st.stats.weight_norms = {}
+    st.stats.avg_weight_magnitudes = {}
     for i = 1, #weights do
       local sum_squared = 0
       local sum_abs = 0
@@ -593,13 +647,14 @@ local function update_parameters_adamw(
           count = count + 1
         end
       end
-      state.stats.weight_norms[i] = math.sqrt(sum_squared)
-      state.stats.avg_weight_magnitudes[i] = sum_abs / count
+      st.stats.weight_norms[i] = math.sqrt(sum_squared)
+      st.stats.avg_weight_magnitudes[i] = sum_abs / count
     end
   end
 end
 
 --- Update weights using configured optimizer (dispatcher function)
+---@param st table State table
 ---@param weights table Current weights
 ---@param biases table Current biases
 ---@param weight_gradients table Weight gradients
@@ -611,6 +666,7 @@ end
 ---@param learning_rate number Learning rate
 ---@param config table Configuration with optimizer settings
 local function update_parameters(
+  st,
   weights,
   biases,
   weight_gradients,
@@ -622,8 +678,9 @@ local function update_parameters(
   learning_rate,
   config
 )
-  if state.optimizer_type == "adamw" then
+  if st.optimizer_type == "adamw" then
     return update_parameters_adamw(
+      st,
       weights,
       biases,
       weight_gradients,
@@ -637,6 +694,7 @@ local function update_parameters(
     )
   else
     return update_parameters_sgd(
+      st,
       weights,
       biases,
       weight_gradients,
@@ -773,11 +831,12 @@ local function construct_batches(current_pairs, history, batch_size, num_batches
 end
 
 --- Train the network on multiple batches with pairwise hinge loss
+---@param st table State table
 ---@param batches table Array of pair batches {pairs}
 ---@param latency_ctx table|nil Optional latency context for performance tracking
 ---@return number Average loss across all batches
-local function train_on_batches(batches, latency_ctx)
-  if not state.weights or #batches == 0 then
+local function train_on_batches(st, batches, latency_ctx)
+  if not st.weights or #batches == 0 then
     return 0
   end
 
@@ -792,13 +851,13 @@ local function train_on_batches(batches, latency_ctx)
   local total_pairs = 0
 
   -- Initialize loss history if needed
-  state.stats.loss_history = state.stats.loss_history or {}
+  st.stats.loss_history = st.stats.loss_history or {}
 
   -- Initialize ranking accuracy history if needed
-  state.stats.ranking_accuracy_history = state.stats.ranking_accuracy_history or {}
+  st.stats.ranking_accuracy_history = st.stats.ranking_accuracy_history or {}
 
   -- Get margin from config
-  local margin = state.config.margin or 1.0
+  local margin = st.config.margin or 1.0
 
   for _, batch in ipairs(batches) do
     if batch.pairs and #batch.pairs > 0 then
@@ -824,15 +883,16 @@ local function train_on_batches(batches, latency_ctx)
       -- Single forward pass for all items (2 * batch_size × features)
       local combined_activations, combined_pre_activations, combined_bn_cache, combined_dropout_masks = forward_pass(
         combined_inputs,
-        state.weights,
-        state.biases,
-        state.gammas,
-        state.betas,
-        state.running_means,
-        state.running_vars,
+        st.weights,
+        st.biases,
+        st.gammas,
+        st.betas,
+        st.running_means,
+        st.running_vars,
         true, -- training mode
-        state.config.dropout_rates,
-        true -- return logits for training
+        st.config.dropout_rates,
+        true, -- return logits for training
+        st.stats
       )
 
       local forward_time = vim.loop.hrtime() - fwd_start
@@ -884,10 +944,11 @@ local function train_on_batches(batches, latency_ctx)
           combined_activations,
           combined_pre_activations,
           combined_grads, -- Pass batched gradients for all items
-          state.weights,
-          state.gammas,
+          st.weights,
+          st.gammas,
           combined_bn_cache,
-          combined_dropout_masks
+          combined_dropout_masks,
+          st.config.dropout_rates
         )
 
       local backward_time = vim.loop.hrtime() - bwd_start
@@ -916,16 +977,17 @@ local function train_on_batches(batches, latency_ctx)
         -- UPDATE PARAMETERS
         local update_start = vim.loop.hrtime()
         update_parameters(
-          state.weights,
-          state.biases,
+          st,
+          st.weights,
+          st.biases,
           weight_grads_accumulated,
           bias_grads_accumulated,
-          state.gammas,
-          state.betas,
+          st.gammas,
+          st.betas,
           gamma_grads_accumulated,
           beta_grads_accumulated,
-          state.config.learning_rate,
-          state.config
+          st.config.learning_rate,
+          st.config
         )
         batch_timing.update_ms = (vim.loop.hrtime() - update_start) / 1e6
       else
@@ -934,21 +996,21 @@ local function train_on_batches(batches, latency_ctx)
       end
 
       -- STORE TIMING in circular buffer
-      table.insert(state.stats.batch_timings, batch_timing)
-      if #state.stats.batch_timings > 10 then
-        table.remove(state.stats.batch_timings, 1)
+      table.insert(st.stats.batch_timings, batch_timing)
+      if #st.stats.batch_timings > 10 then
+        table.remove(st.stats.batch_timings, 1)
       end
 
       -- Calculate average timing
-      if #state.stats.batch_timings > 0 then
+      if #st.stats.batch_timings > 0 then
         local avg_forward, avg_backward, avg_update = 0, 0, 0
-        for _, timing in ipairs(state.stats.batch_timings) do
+        for _, timing in ipairs(st.stats.batch_timings) do
           avg_forward = avg_forward + timing.forward_ms
           avg_backward = avg_backward + timing.backward_ms
           avg_update = avg_update + timing.update_ms
         end
-        local n = #state.stats.batch_timings
-        state.stats.avg_batch_timing = {
+        local n = #st.stats.batch_timings
+        st.stats.avg_batch_timing = {
           forward_ms = avg_forward / n,
           backward_ms = avg_backward / n,
           update_ms = avg_update / n,
@@ -960,33 +1022,33 @@ local function train_on_batches(batches, latency_ctx)
       batch_loss = batch_loss / batch_size
       total_loss = total_loss + batch_loss
       total_pairs = total_pairs + batch_size
-      state.stats.batches_trained = state.stats.batches_trained + 1
+      st.stats.batches_trained = st.stats.batches_trained + 1
 
       -- Add individual batch loss to history
-      table.insert(state.stats.loss_history, batch_loss)
-      if #state.stats.loss_history > 1000 then
-        table.remove(state.stats.loss_history, 1)
+      table.insert(st.stats.loss_history, batch_loss)
+      if #st.stats.loss_history > 1000 then
+        table.remove(st.stats.loss_history, 1)
       end
 
       -- Track ranking accuracy history
-      table.insert(state.stats.ranking_accuracy_history, {
+      table.insert(st.stats.ranking_accuracy_history, {
         correct = batch_correct,
         margin_correct = batch_margin_correct,
         total = batch_size,
       })
-      if #state.stats.ranking_accuracy_history > 1000 then
-        table.remove(state.stats.ranking_accuracy_history, 1)
+      if #st.stats.ranking_accuracy_history > 1000 then
+        table.remove(st.stats.ranking_accuracy_history, 1)
       end
     end
   end
 
   -- Update statistics
   if #batches > 0 then
-    state.stats.last_loss = total_loss / #batches
-    state.stats.samples_per_batch = total_pairs / #batches
+    st.stats.last_loss = total_loss / #batches
+    st.stats.samples_per_batch = total_pairs / #batches
   else
-    state.stats.last_loss = 0
-    state.stats.samples_per_batch = 0
+    st.stats.last_loss = 0
+    st.stats.samples_per_batch = 0
   end
 
   -- Track memory usage after training
@@ -1017,52 +1079,52 @@ local function train_on_batches(batches, latency_ctx)
     })
   end
 
-  return state.stats.last_loss
+  return st.stats.last_loss
 end
 
---- Ensure config is loaded from the main module
---- Config comes from init.lua (single source of truth) via registry.get_algorithm()
+--- Ensure config is available on the given state table.
+--- Fallback loads from main module config (legacy path, removed once tests migrate to create_instance).
+---@param st table State table
 ---@return NosNNConfig The current configuration
-local function ensure_config()
-  if not state.config then
-    -- Load config from main module (user config already merged with defaults in init.lua)
+local function ensure_config(st)
+  if not st.config then
     local main_config = require("neural-open").config
     local algo_config = main_config.algorithm_config and main_config.algorithm_config.nn or {}
-    state.config = vim.deepcopy(algo_config)
+    st.config = vim.deepcopy(algo_config)
 
-    -- Validate critical fields exist
-    if not state.config.architecture then
+    if not st.config.architecture then
       error("NN algorithm not properly initialized - missing configuration")
     end
   end
-  return state.config
+  return st.config
 end
 
 --- Prepare fused weights/biases for fast inference by folding batch normalization
 --- into the weight matrices. This eliminates all batch norm computation at inference time.
 --- Also transposes weight matrices for cache-friendly access patterns.
-local function prepare_inference_cache()
-  if not state.weights or #state.weights == 0 then
+---@param st table State table
+local function prepare_inference_cache(st)
+  if not st.weights or #st.weights == 0 then
     return
   end
 
-  local num_layers = #state.weights
+  local num_layers = #st.weights
   local weights_t = {}
   local biases = {}
   local buffers = {}
 
   for i = 1, num_layers do
-    local w = state.weights[i]
-    local b = state.biases[i]
+    local w = st.weights[i]
+    local b = st.biases[i]
     local in_size = #w
     local out_size = #w[1]
 
-    if i < num_layers and state.gammas and state.gammas[i] and state.betas and state.betas[i] then
+    if i < num_layers and st.gammas and st.gammas[i] and st.betas and st.betas[i] then
       -- Hidden layer: fuse batch norm into weights and biases
-      local gamma = state.gammas[i][1]
-      local beta = state.betas[i][1]
-      local mean = state.running_means[i][1]
-      local var = state.running_vars[i][1]
+      local gamma = st.gammas[i][1]
+      local beta = st.betas[i][1]
+      local mean = st.running_means[i][1]
+      local var = st.running_vars[i][1]
 
       -- Compute scale and build transposed fused weight matrix + flat fused bias
       local wt_layer = {}
@@ -1103,7 +1165,7 @@ local function prepare_inference_cache()
   end
 
   -- Pre-allocate input buffer
-  local input_size = #state.weights[1] -- rows of first weight matrix = input features
+  local input_size = #st.weights[1] -- rows of first weight matrix = input features
   local input_buf = {}
   for j = 1, input_size do
     input_buf[j] = 0
@@ -1116,7 +1178,7 @@ local function prepare_inference_cache()
     input_sizes[i] = #biases[i - 1]
   end
 
-  state.inference_cache = {
+  st.inference_cache = {
     weights_t = weights_t,
     biases = biases,
     buffers = buffers,
@@ -1127,44 +1189,45 @@ local function prepare_inference_cache()
 end
 
 --- Ensure the network state is initialized
+---@param st table State table
 ---@param force_reload boolean? Force reload weights even if already loaded
-local function ensure_weights(force_reload)
-  if not state.weights or force_reload then
+local function ensure_weights(st, force_reload)
+  if not st.weights or force_reload then
     -- Invalidate inference cache when reloading weights
-    state.inference_cache = nil
+    st.inference_cache = nil
 
     -- Ensure config is loaded
-    local config = ensure_config()
+    local config = ensure_config(st)
 
     -- Try to load from storage first
     local weights_module = require("neural-open.weights")
-    local algorithm_weights = weights_module.get_weights("nn", state.config and state.config.picker_name)
+    local algorithm_weights = weights_module.get_weights("nn", st.config and st.config.picker_name)
 
     if algorithm_weights and algorithm_weights.nn then
       -- Load network weights
       if algorithm_weights.nn.network then
-        state.weights = algorithm_weights.nn.network.weights
-        state.biases = algorithm_weights.nn.network.biases
-        state.gammas = algorithm_weights.nn.network.gammas
-        state.betas = algorithm_weights.nn.network.betas
-        state.running_means = algorithm_weights.nn.network.running_means
-        state.running_vars = algorithm_weights.nn.network.running_vars
+        st.weights = algorithm_weights.nn.network.weights
+        st.biases = algorithm_weights.nn.network.biases
+        st.gammas = algorithm_weights.nn.network.gammas
+        st.betas = algorithm_weights.nn.network.betas
+        st.running_means = algorithm_weights.nn.network.running_means
+        st.running_vars = algorithm_weights.nn.network.running_vars
       end
 
       -- Handle input-size migration: expand first layer if config expects more inputs
       local input_size_migrated = false
       local migrated_output_size = 0
-      if state.weights and state.weights[1] then
-        local saved_input_size = #state.weights[1]
+      if st.weights and st.weights[1] then
+        local saved_input_size = #st.weights[1]
         local expected_input_size = config.architecture[1]
         if saved_input_size ~= expected_input_size and saved_input_size < expected_input_size then
           input_size_migrated = true
-          local output_size = #state.weights[1][1]
+          local output_size = #st.weights[1][1]
           migrated_output_size = output_size
           -- Append new rows with Xavier-scale random values for each new input
           for _ = saved_input_size + 1, expected_input_size do
             local new_row = nn_core.xavier_init(1, output_size, expected_input_size)[1]
-            state.weights[1][#state.weights[1] + 1] = new_row
+            st.weights[1][#st.weights[1] + 1] = new_row
           end
 
           -- Backfill training history: expand existing pairs to match new input size
@@ -1199,12 +1262,12 @@ local function ensure_weights(force_reload)
       end
 
       -- Load history and stats
-      state.training_history = algorithm_weights.nn.training_history or {}
+      st.training_history = algorithm_weights.nn.training_history or {}
       if algorithm_weights.nn.stats then
-        state.stats = vim.tbl_extend("force", state.stats, algorithm_weights.nn.stats)
-        state.stats.batch_timings = state.stats.batch_timings or {}
-        state.stats.avg_batch_timing = state.stats.avg_batch_timing or nil
-        state.stats.loss_history = state.stats.loss_history or {}
+        st.stats = vim.tbl_extend("force", st.stats, algorithm_weights.nn.stats)
+        st.stats.batch_timings = st.stats.batch_timings or {}
+        st.stats.avg_batch_timing = st.stats.avg_batch_timing or nil
+        st.stats.loss_history = st.stats.loss_history or {}
       end
 
       -- Load optimizer state
@@ -1213,8 +1276,8 @@ local function ensure_weights(force_reload)
 
       if saved_optimizer_type ~= current_optimizer_type then
         -- Optimizer changed - reset optimizer state but keep network weights
-        state.optimizer_type = current_optimizer_type
-        state.optimizer_state = nil
+        st.optimizer_type = current_optimizer_type
+        st.optimizer_state = nil
         vim.notify(
           "neural-open: Optimizer changed to "
             .. current_optimizer_type
@@ -1222,22 +1285,22 @@ local function ensure_weights(force_reload)
           vim.log.levels.INFO
         )
       else
-        state.optimizer_type = saved_optimizer_type
-        state.optimizer_state = algorithm_weights.nn.optimizer_state
+        st.optimizer_type = saved_optimizer_type
+        st.optimizer_state = algorithm_weights.nn.optimizer_state
       end
 
       -- Initialize optimizer state if needed
-      if state.optimizer_type == "adamw" and not state.optimizer_state then
-        state.optimizer_state = init_optimizer_state("adamw", config.architecture)
-      elseif state.optimizer_type == "sgd" and not state.optimizer_state then
-        state.optimizer_state = { timestep = 0 }
+      if st.optimizer_type == "adamw" and not st.optimizer_state then
+        st.optimizer_state = init_optimizer_state("adamw", config.architecture)
+      elseif st.optimizer_type == "sgd" and not st.optimizer_state then
+        st.optimizer_state = { timestep = 0 }
       end
 
       -- Reset first-layer optimizer moments after input-size migration.
       -- This must run after optimizer state is loaded from disk.
-      if input_size_migrated and state.optimizer_state and state.optimizer_state.moments then
+      if input_size_migrated and st.optimizer_state and st.optimizer_state.moments then
         local expected_input_size = config.architecture[1]
-        local m = state.optimizer_state.moments
+        local m = st.optimizer_state.moments
         if m.first and m.first.weights and m.first.weights[1] then
           m.first.weights[1] = nn_core.zeros(expected_input_size, migrated_output_size)
         end
@@ -1248,7 +1311,7 @@ local function ensure_weights(force_reload)
     end
 
     -- If still no weights, try loading from bundled defaults
-    if not state.weights then
+    if not st.weights then
       -- Default weights architecture (must match nn_default_weights.lua)
       local default_architecture = { 11, 16, 16, 8, 1 }
       local architecture_matches = vim.deep_equal(config.architecture, default_architecture)
@@ -1262,63 +1325,62 @@ local function ensure_weights(force_reload)
       end
 
       if default_weights then
-        state.weights = default_weights.network.weights
-        state.biases = default_weights.network.biases
-        state.gammas = default_weights.network.gammas
-        state.betas = default_weights.network.betas
-        state.running_means = default_weights.network.running_means
-        state.running_vars = default_weights.network.running_vars
+        st.weights = default_weights.network.weights
+        st.biases = default_weights.network.biases
+        st.gammas = default_weights.network.gammas
+        st.betas = default_weights.network.betas
+        st.running_means = default_weights.network.running_means
+        st.running_vars = default_weights.network.running_vars
       else
         -- Fallback to random initialization if defaults unavailable or architecture differs
-        state.weights, state.biases, state.gammas, state.betas, state.running_means, state.running_vars =
+        st.weights, st.biases, st.gammas, st.betas, st.running_means, st.running_vars =
           nn_core.init_network(config.architecture)
       end
-      state.training_history = {}
+      st.training_history = {}
 
       -- Set optimizer type from config
-      state.optimizer_type = config.optimizer or "sgd"
-      if state.optimizer_type == "adamw" then
-        state.optimizer_state = init_optimizer_state("adamw", config.architecture)
+      st.optimizer_type = config.optimizer or "sgd"
+      if st.optimizer_type == "adamw" then
+        st.optimizer_state = init_optimizer_state("adamw", config.architecture)
       else
         -- SGD needs state for timestep tracking (warmup)
-        state.optimizer_state = { timestep = 0 }
+        st.optimizer_state = { timestep = 0 }
       end
     end
 
     -- Ensure running statistics exist (initialize if missing from loaded weights)
-    if not state.running_means or not state.running_vars then
+    if not st.running_means or not st.running_vars then
       local _, _, _, _, running_means, running_vars = nn_core.init_network(config.architecture)
-      state.running_means = running_means
-      state.running_vars = running_vars
+      st.running_means = running_means
+      st.running_vars = running_vars
     end
 
     -- Build fused inference cache for fast calculate_score()
-    prepare_inference_cache()
+    prepare_inference_cache(st)
   end
 end
 
---- Calculate score using neural network from a flat input buffer.
---- The input_buf is used directly as the first layer's input (read-only, not modified).
---- IMPORTANT: load_weights() must be called before first use (done in capture_context)
----@param input_buf number[] Flat array of 11 normalized features in canonical order
+--- Implementation: Calculate score using neural network from a flat input buffer
+---@param st table State table
+---@param input_buf number[] Flat array of normalized features in canonical order
 ---@return number Score in [0, 100]
-function M.calculate_score(input_buf)
+local function calculate_score_impl(st, input_buf)
   -- Lazy-load weights if not yet initialized (hot path skips this after first call)
-  if not state.inference_cache then
-    ensure_weights()
+  if not st.inference_cache then
+    ensure_weights(st)
   end
 
-  if not state.inference_cache then
+  if not st.inference_cache then
     -- Fallback to general forward_pass when inference cache unavailable (e.g., empty/invalid weights)
     local input = features_to_input(input_buf, false)
     local activations = forward_pass(
       input,
-      state.weights,
-      state.biases,
-      state.gammas,
-      state.betas,
-      state.running_means,
-      state.running_vars,
+      st.weights,
+      st.biases,
+      st.gammas,
+      st.betas,
+      st.running_means,
+      st.running_vars,
       false,
       nil,
       false
@@ -1326,7 +1388,7 @@ function M.calculate_score(input_buf)
     return activations[#activations][1][1] * 100
   end
 
-  local cache = state.inference_cache --[[@as table]]
+  local cache = st.inference_cache --[[@as table]]
   local num_layers = cache.num_layers
   local input_sizes = cache.input_sizes
   local current = input_buf -- Use directly as first-layer input (read-only)
@@ -1366,15 +1428,16 @@ function M.calculate_score(input_buf)
   return current[1] * 100
 end
 
---- Update neural network weights based on user selection (with optional latency tracking)
+--- Implementation: Update neural network weights based on user selection
+---@param st table State table
 ---@param selected_item NeuralOpenItem
 ---@param ranked_items NeuralOpenItem[]
 ---@param latency_ctx? table Optional latency context
-function M.update_weights(selected_item, ranked_items, latency_ctx)
+local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
   local latency = require("neural-open.latency")
-  ensure_weights()
+  ensure_weights(st)
 
-  local config = ensure_config()
+  local config = ensure_config(st)
 
   -- Find selected item's rank
   local selected_rank = 1
@@ -1423,7 +1486,7 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
           positive_file = selected_item.nos.normalized_path,
           negative_file = neg_item.nos.normalized_path,
         })
-        state.stats.samples_processed = state.stats.samples_processed + 1
+        st.stats.samples_processed = st.stats.samples_processed + 1
       end
     end
 
@@ -1439,43 +1502,43 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
   local batches = latency.measure(latency_ctx, "nn.batch_construction", function()
     -- Construct batches BEFORE adding current pairs to history to avoid duplicates
     -- This ensures the first batch uses current pairs + old history (not current pairs twice)
-    return construct_batches(pairs, state.training_history, config.batch_size, config.batches_per_update)
+    return construct_batches(pairs, st.training_history, config.batch_size, config.batches_per_update)
   end, "async.weight_update")
 
   latency.add_metadata(latency_ctx, "nn.batch_construction", {
     num_batches = #batches,
-    history_size = #state.training_history,
+    history_size = #st.training_history,
   })
 
   -- Add current pairs to history (they go at the end as newest)
   for _, pair in ipairs(pairs) do
-    table.insert(state.training_history, pair)
+    table.insert(st.training_history, pair)
   end
 
   -- Maintain history size limit by removing oldest pairs
-  while #state.training_history > config.history_size do
-    table.remove(state.training_history, 1) -- Remove oldest (from beginning)
+  while #st.training_history > config.history_size do
+    table.remove(st.training_history, 1) -- Remove oldest (from beginning)
   end
 
   -- Train the network on all batches
   if #batches > 0 then
     latency.start(latency_ctx, "nn.training", "async.weight_update")
-    train_on_batches(batches, latency_ctx)
+    train_on_batches(st, batches, latency_ctx)
     latency.finish(latency_ctx, "nn.training")
 
     -- Rebuild inference cache after training modified weights/batch norm parameters
-    prepare_inference_cache()
+    prepare_inference_cache(st)
 
     -- Inject training phase metrics from existing stats (post-hoc metadata)
-    if state.stats.avg_batch_timing then
+    if st.stats.avg_batch_timing then
       latency.add_metadata(latency_ctx, "nn.training", {
         num_batches = #batches,
-        total_pairs = math.floor(state.stats.samples_per_batch * #batches),
-        avg_forward_ms = state.stats.avg_batch_timing.forward_ms,
-        avg_backward_ms = state.stats.avg_batch_timing.backward_ms,
-        avg_update_ms = state.stats.avg_batch_timing.update_ms,
-        avg_loss = state.stats.last_loss,
-        optimizer = state.optimizer_type,
+        total_pairs = math.floor(st.stats.samples_per_batch * #batches),
+        avg_forward_ms = st.stats.avg_batch_timing.forward_ms,
+        avg_backward_ms = st.stats.avg_batch_timing.backward_ms,
+        avg_update_ms = st.stats.avg_batch_timing.update_ms,
+        avg_loss = st.stats.last_loss,
+        optimizer = st.optimizer_type,
       })
     end
   end
@@ -1487,26 +1550,27 @@ function M.update_weights(selected_item, ranked_items, latency_ctx)
     nn = {
       version = "2.0-hinge", -- Version field for pairwise hinge loss format
       network = {
-        weights = state.weights,
-        biases = state.biases,
-        gammas = state.gammas,
-        betas = state.betas,
-        running_means = state.running_means,
-        running_vars = state.running_vars,
+        weights = st.weights,
+        biases = st.biases,
+        gammas = st.gammas,
+        betas = st.betas,
+        running_means = st.running_means,
+        running_vars = st.running_vars,
       },
-      training_history = state.training_history,
-      stats = state.stats,
-      optimizer_type = state.optimizer_type,
-      optimizer_state = state.optimizer_state,
+      training_history = st.training_history,
+      stats = st.stats,
+      optimizer_type = st.optimizer_type,
+      optimizer_state = st.optimizer_state,
     },
-  }, latency_ctx, state.config and state.config.picker_name)
+  }, latency_ctx, st.config and st.config.picker_name)
   latency.finish(latency_ctx, "nn.save_weights")
 end
 
 --- Calculate loss averages from history
+---@param st table State table
 ---@return table<number, number?> averages Table with keys 1, 10, 100, 1000
-local function calculate_loss_averages()
-  local history = state.stats and state.stats.loss_history
+local function calculate_loss_averages(st)
+  local history = st.stats and st.stats.loss_history
   if not history or #history == 0 then
     return {}
   end
@@ -1540,9 +1604,10 @@ local function calculate_loss_averages()
 end
 
 --- Calculate ranking accuracy averages from history
+---@param st table State table
 ---@return table<number, {correct_pct: number, margin_pct: number}> averages Table with keys 1, 10, 100, 1000
-local function calculate_accuracy_averages()
-  local history = state.stats and state.stats.ranking_accuracy_history
+local function calculate_accuracy_averages(st)
+  local history = st.stats and st.stats.ranking_accuracy_history
   if not history or #history == 0 then
     return {}
   end
@@ -1596,30 +1661,31 @@ end
 
 local fmt = require("neural-open.debug_fmt")
 
---- Generate debug view for neural network algorithm
+--- Implementation: Generate debug view for neural network algorithm
+---@param st table State table
 ---@param item NeuralOpenItem
 ---@param all_items NeuralOpenItem[]?
 ---@return string[], table[]
-function M.debug_view(item, all_items)
+local function debug_view_impl(st, item, all_items)
   local lines = {}
   local hl = {}
 
   fmt.add_title(lines, hl, "Neural Network Algorithm")
   table.insert(lines, "")
 
-  local config = ensure_config()
+  local config = ensure_config(st)
   fmt.add_label(lines, hl, "Architecture", table.concat(config.architecture, " -> "))
   fmt.add_label(lines, hl, "Learning Rate", string.format("%.4f", config.learning_rate))
   fmt.add_label(lines, hl, "Weight Decay", string.format("%.6f", config.weight_decay or 0))
   fmt.add_label(lines, hl, "Margin", string.format("%.2f", config.margin or 1.0))
 
   -- Optimizer information
-  local optimizer_name = state.optimizer_type == "adamw" and "AdamW" or "SGD"
+  local optimizer_name = st.optimizer_type == "adamw" and "AdamW" or "SGD"
   fmt.add_label(lines, hl, "Optimizer", optimizer_name)
 
   -- Step counter with warmup info
-  if state.optimizer_state then
-    local current_timestep = state.optimizer_state.timestep or 0
+  if st.optimizer_state then
+    local current_timestep = st.optimizer_state.timestep or 0
     local warmup_steps = config.warmup_steps or 0
     local warmup_start_factor = config.warmup_start_factor or 0.1
 
@@ -1635,7 +1701,7 @@ function M.debug_view(item, all_items)
       fmt.add_label(lines, hl, "Step", string.format("%d", current_timestep))
     end
 
-    if state.optimizer_type == "adamw" then
+    if st.optimizer_type == "adamw" then
       fmt.add_label(
         lines,
         hl,
@@ -1647,10 +1713,10 @@ function M.debug_view(item, all_items)
   end
 
   -- AdamW moment statistics
-  if state.optimizer_type == "adamw" and state.optimizer_state then
-    if state.optimizer_state.moments and state.optimizer_state.moments.first.weights[1] then
-      local m_w = state.optimizer_state.moments.first.weights[1]
-      local v_w = state.optimizer_state.moments.second.weights[1]
+  if st.optimizer_type == "adamw" and st.optimizer_state then
+    if st.optimizer_state.moments and st.optimizer_state.moments.first.weights[1] then
+      local m_w = st.optimizer_state.moments.first.weights[1]
+      local v_w = st.optimizer_state.moments.second.weights[1]
 
       local m_sum, v_sum, count = 0, 0, 0
       for i = 1, #m_w do
@@ -1681,9 +1747,9 @@ function M.debug_view(item, all_items)
     end
     fmt.add_label(lines, hl, "Dropout Rates", table.concat(dropout_str, ", "))
 
-    if state.stats.dropout_active_rates and next(state.stats.dropout_active_rates) then
+    if st.stats.dropout_active_rates and next(st.stats.dropout_active_rates) then
       local active_str = {}
-      for i, rate in pairs(state.stats.dropout_active_rates) do
+      for i, rate in pairs(st.stats.dropout_active_rates) do
         if rate ~= nil and rate > 0 then
           table.insert(active_str, string.format("L%d: %.1f%%", i, rate))
         end
@@ -1710,11 +1776,11 @@ function M.debug_view(item, all_items)
   fmt.add_title(lines, hl, "Training Statistics")
   table.insert(lines, "")
 
-  -- Training metrics table (loss, accuracy, margin accuracy) — shown first
-  local loss_averages = calculate_loss_averages()
-  local accuracy_averages = calculate_accuracy_averages()
-  local loss_history_size = state.stats.loss_history and #state.stats.loss_history or 0
-  local accuracy_history_size = state.stats.ranking_accuracy_history and #state.stats.ranking_accuracy_history or 0
+  -- Training metrics table (loss, accuracy, margin accuracy) -- shown first
+  local loss_averages = calculate_loss_averages(st)
+  local accuracy_averages = calculate_accuracy_averages(st)
+  local loss_history_size = st.stats.loss_history and #st.stats.loss_history or 0
+  local accuracy_history_size = st.stats.ranking_accuracy_history and #st.stats.ranking_accuracy_history or 0
 
   if loss_history_size > 0 or accuracy_history_size > 0 then
     local windows = { 1, 10, 100, 1000 }
@@ -1761,22 +1827,22 @@ function M.debug_view(item, all_items)
       table.insert(lines, "")
     end
   else
-    fmt.add_label(lines, hl, "Last Hinge Loss", string.format("%.6f", state.stats.last_loss or 0))
+    fmt.add_label(lines, hl, "Last Hinge Loss", string.format("%.6f", st.stats.last_loss or 0))
   end
 
-  fmt.add_label(lines, hl, "Samples Processed", string.format("%d", state.stats.samples_processed or 0))
-  fmt.add_label(lines, hl, "Batches Trained", string.format("%d", state.stats.batches_trained or 0))
+  fmt.add_label(lines, hl, "Samples Processed", string.format("%d", st.stats.samples_processed or 0))
+  fmt.add_label(lines, hl, "Batches Trained", string.format("%d", st.stats.batches_trained or 0))
 
   fmt.add_label(
     lines,
     hl,
     "History Size",
-    string.format("%d/%d pairs", state.training_history and #state.training_history or 0, config.history_size)
+    string.format("%d/%d pairs", st.training_history and #st.training_history or 0, config.history_size)
   )
   fmt.add_label(lines, hl, "Training Mode", "Pairwise Ranking (Hinge Loss)")
 
   -- Batch timing statistics
-  local avg_timing = state.stats and state.stats.avg_batch_timing
+  local avg_timing = st.stats and st.stats.avg_batch_timing
   if avg_timing and avg_timing.total_ms then
     fmt.add_label(
       lines,
@@ -1793,13 +1859,8 @@ function M.debug_view(item, all_items)
   end
 
   -- Loss interpretation
-  if state.stats.last_loss and state.stats.last_loss > 0 then
-    fmt.add_label(
-      lines,
-      hl,
-      "Loss Interpretation",
-      string.format("Avg margin violation of %.4f", state.stats.last_loss)
-    )
+  if st.stats.last_loss and st.stats.last_loss > 0 then
+    fmt.add_label(lines, hl, "Loss Interpretation", string.format("Avg margin violation of %.4f", st.stats.last_loss))
     table.insert(lines, string.format("      (Loss=0 means all pairs satisfy margin of %.2f)", config.margin or 1.0))
   end
 
@@ -1815,19 +1876,19 @@ function M.debug_view(item, all_items)
     normalized_features = input_buf_to_features(item.nos.input_buf)
   end
 
-  if state.weights and state.weights[1] then
+  if st.weights and st.weights[1] then
     local feature_order = FEATURE_NAMES
 
     -- Compute importance (L1 norm of first-layer weights per feature)
     local feature_data = {}
     for i, name in ipairs(feature_order) do
       local weight_sum = 0
-      for j = 1, #state.weights[1][i] do
-        weight_sum = weight_sum + math.abs(state.weights[1][i][j])
+      for j = 1, #st.weights[1][i] do
+        weight_sum = weight_sum + math.abs(st.weights[1][i][j])
       end
       table.insert(feature_data, {
         name = name,
-        importance = weight_sum / #state.weights[1][i],
+        importance = weight_sum / #st.weights[1][i],
         value = normalized_features and normalized_features[name] or nil,
       })
     end
@@ -1853,7 +1914,7 @@ function M.debug_view(item, all_items)
   end
 
   -- Network prediction
-  if normalized_features and state.weights then
+  if normalized_features and st.weights then
     fmt.add_title(lines, hl, "Network Prediction")
     table.insert(lines, "")
 
@@ -1863,12 +1924,12 @@ function M.debug_view(item, all_items)
     -- Get logit output for debug info
     local activations_logit = forward_pass(
       input,
-      state.weights,
-      state.biases,
-      state.gammas,
-      state.betas,
-      state.running_means,
-      state.running_vars,
+      st.weights,
+      st.biases,
+      st.gammas,
+      st.betas,
+      st.running_means,
+      st.running_vars,
       false, -- inference mode
       nil, -- no dropout
       true -- return logits
@@ -1878,12 +1939,12 @@ function M.debug_view(item, all_items)
     -- Get sigmoid output for probability
     local activations = forward_pass(
       input,
-      state.weights,
-      state.biases,
-      state.gammas,
-      state.betas,
-      state.running_means,
-      state.running_vars,
+      st.weights,
+      st.biases,
+      st.gammas,
+      st.betas,
+      st.running_means,
+      st.running_vars,
       false, -- inference mode
       nil, -- no dropout
       false -- return sigmoid
@@ -1903,12 +1964,12 @@ function M.debug_view(item, all_items)
         end
         fmt.add_label(lines, hl, layer_name, string.format("%d/%d neurons active", active_count, #activation))
 
-        if state.gammas and state.gammas[i - 1] then
+        if st.gammas and st.gammas[i - 1] then
           fmt.add_label(
             lines,
             hl,
             "BatchNorm",
-            string.format("enabled (mean: %.4f, bias: %.4f)", state.gammas[i - 1][1][1], state.betas[i - 1][1][1]),
+            string.format("enabled (mean: %.4f, bias: %.4f)", st.gammas[i - 1][1][1], st.betas[i - 1][1][1]),
             4
           )
         end
@@ -1920,19 +1981,81 @@ function M.debug_view(item, all_items)
   end
 
   -- Weight statistics
-  if state.stats.weight_norms and #state.stats.weight_norms > 0 then
+  if st.stats.weight_norms and #st.stats.weight_norms > 0 then
     table.insert(lines, "")
     fmt.add_title(lines, hl, "Weight Statistics")
     table.insert(lines, "")
-    for i = 1, #state.stats.weight_norms do
-      local layer_name = i < #state.stats.weight_norms and string.format("Layer %d", i) or "Output Layer"
+    for i = 1, #st.stats.weight_norms do
+      local layer_name = i < #st.stats.weight_norms and string.format("Layer %d", i) or "Output Layer"
       fmt.add_label(lines, hl, layer_name, "")
-      fmt.add_label(lines, hl, "L2 Norm", string.format("%.4f", state.stats.weight_norms[i] or 0), 4)
-      fmt.add_label(lines, hl, "Avg Magnitude", string.format("%.4f", state.stats.avg_weight_magnitudes[i] or 0), 4)
+      fmt.add_label(lines, hl, "L2 Norm", string.format("%.4f", st.stats.weight_norms[i] or 0), 4)
+      fmt.add_label(lines, hl, "Avg Magnitude", string.format("%.4f", st.stats.avg_weight_magnitudes[i] or 0), 4)
     end
   end
 
   return lines, hl
+end
+
+--- Implementation: Load the latest weights
+---@param st table State table
+local function load_weights_impl(st)
+  ensure_weights(st, true)
+end
+
+--- Create a per-picker instance with isolated state
+---@param config NosNNConfig
+---@return Algorithm
+function M.create_instance(config)
+  local picker_name = config.picker_name or "__default__"
+  local st = states[picker_name]
+  if not st then
+    st = new_state()
+    states[picker_name] = st
+  end
+  init_state(st, config)
+  return {
+    calculate_score = function(input_buf)
+      return calculate_score_impl(st, input_buf)
+    end,
+    update_weights = function(selected_item, ranked_items, latency_ctx)
+      return update_weights_impl(st, selected_item, ranked_items, latency_ctx)
+    end,
+    load_weights = function()
+      return load_weights_impl(st)
+    end,
+    debug_view = function(item, all_items)
+      return debug_view_impl(st, item, all_items)
+    end,
+    get_name = function()
+      return "nn"
+    end,
+    init = function() end, -- no-op; config already set via init_state
+  }
+end
+
+--- Calculate score using neural network from a flat input buffer.
+--- The input_buf is used directly as the first layer's input (read-only, not modified).
+--- IMPORTANT: load_weights() must be called before first use (done in capture_context)
+---@param input_buf number[] Flat array of 11 normalized features in canonical order
+---@return number Score in [0, 100]
+function M.calculate_score(input_buf)
+  return calculate_score_impl(state, input_buf)
+end
+
+--- Update neural network weights based on user selection (with optional latency tracking)
+---@param selected_item NeuralOpenItem
+---@param ranked_items NeuralOpenItem[]
+---@param latency_ctx? table Optional latency context
+function M.update_weights(selected_item, ranked_items, latency_ctx)
+  return update_weights_impl(state, selected_item, ranked_items, latency_ctx)
+end
+
+--- Generate debug view for neural network algorithm
+---@param item NeuralOpenItem
+---@param all_items NeuralOpenItem[]?
+---@return string[], table[]
+function M.debug_view(item, all_items)
+  return debug_view_impl(state, item, all_items)
 end
 
 --- Get algorithm name
@@ -1944,52 +2067,12 @@ end
 --- Initialize algorithm
 ---@param config NosNNConfig
 function M.init(config)
-  state.config = vim.deepcopy(config or {})
-
-  -- Validate required fields exist
-  if not state.config.architecture then
-    error("NN algorithm: config.architecture is required")
-  end
-  if not state.config.optimizer then
-    error("NN algorithm: config.optimizer is required")
-  end
-
-  -- Set optimizer type from config
-  state.optimizer_type = state.config.optimizer
-
-  -- Validate optimizer type
-  if state.optimizer_type ~= "sgd" and state.optimizer_type ~= "adamw" then
-    error(string.format("Invalid optimizer type: %s. Must be 'sgd' or 'adamw'", state.optimizer_type))
-  end
-
-  -- Validate dropout configuration
-  if state.config.dropout_rates then
-    local hidden_layer_count = #state.config.architecture - 2 -- Exclude input and output layers
-    if #state.config.dropout_rates ~= hidden_layer_count then
-      error(
-        string.format(
-          "Dropout rates array length (%d) must match number of hidden layers (%d)",
-          #state.config.dropout_rates,
-          hidden_layer_count
-        )
-      )
-    end
-
-    -- Validate each dropout rate is in [0, 1) range
-    for i, rate in ipairs(state.config.dropout_rates) do
-      if rate < 0 or rate >= 1 then
-        error(string.format("Dropout rate for layer %d must be in [0, 1) range, got %.2f", i, rate))
-      end
-    end
-  end
-
-  -- Initialize random seed for reproducibility
-  math.randomseed(os.time())
+  init_state(state, config)
 end
 
 --- Load the latest weights from the weights module
 function M.load_weights()
-  ensure_weights(true)
+  return load_weights_impl(state)
 end
 
 -- Testing helpers (only available in test environment)
@@ -2022,11 +2105,16 @@ if _G._TEST then
       state.running_vars,
       false, -- inference mode
       nil, -- no dropout
-      false -- return sigmoid output
+      false, -- return sigmoid output
+      state.stats
     )
   end
 
   M._features_to_input = features_to_input
+
+  function M._reset_states()
+    states = {}
+  end
 end
 
 return M
