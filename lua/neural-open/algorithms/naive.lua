@@ -2,6 +2,7 @@
 local M = {}
 
 local scorer = require("neural-open.scorer")
+local item_scorer = require("neural-open.item_scorer")
 
 --- Calculate score by summing all elements in the input buffer
 ---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
@@ -46,7 +47,13 @@ function M.debug_view(item, all_items)
   end
 
   if item.nos and item.nos.input_buf then
-    local normalized_features = scorer.input_buf_to_features(item.nos.input_buf)
+    local buf = item.nos.input_buf
+    local feature_names = #buf == #item_scorer.ITEM_FEATURE_NAMES and item_scorer.ITEM_FEATURE_NAMES
+      or scorer.FEATURE_NAMES
+    local normalized_features = {}
+    for i, name in ipairs(feature_names) do
+      normalized_features[name] = buf[i]
+    end
     fmt.append_feature_value_table(lines, hl, normalized_features)
   end
 

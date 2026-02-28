@@ -282,10 +282,14 @@ local function build_file_source_config(picker_name, picker_config)
       end
     end,
     format = picker_config.format or "file",
-    preview = picker_config.preview or function(ctx)
+    preview = function(ctx)
       if M.config.debug.preview then
+        ctx.meta = ctx.meta or {}
+        ctx.meta.nos_user_preview = picker_config.preview
         local debug_mod = require("neural-open.debug")
         return debug_mod.debug_preview(ctx)
+      elseif picker_config.preview then
+        return picker_config.preview(ctx)
       else
         return require("snacks.picker.preview").file(ctx)
       end
@@ -329,7 +333,16 @@ local function build_item_source_config(picker_name, picker_config)
   return {
     finder = finder,
     format = picker_config.format,
-    preview = picker_config.preview,
+    preview = function(ctx)
+      if M.config.debug.preview then
+        ctx.meta = ctx.meta or {}
+        ctx.meta.nos_user_preview = picker_config.preview
+        local debug_mod = require("neural-open.debug")
+        return debug_mod.debug_preview(ctx)
+      elseif picker_config.preview then
+        return picker_config.preview(ctx)
+      end
+    end,
     transform = item_source.create_item_transform(picker_name, effective_config, item_scorer),
     matcher = {
       sort_empty = true,

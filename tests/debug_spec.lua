@@ -307,4 +307,417 @@ describe("debug module", function()
       assert.is_true(found_recent_rank, "Should show recent rank metadata")
     end)
   end)
+
+  describe("item picker debug_preview", function()
+    local item_ctx
+    local item_picker_item
+    local item_picker_item_empty_tracking
+
+    before_each(function()
+      local helpers = require("tests.helpers")
+
+      -- Clear caches
+      package.loaded["neural-open.algorithms.registry"] = nil
+      package.loaded["neural-open.algorithms.classic"] = nil
+      package.loaded["neural-open.algorithms.nn"] = nil
+      package.loaded["neural-open.debug"] = nil
+
+      debug = require("neural-open.debug")
+
+      -- Mock weights module
+      local item_default_weights = helpers.get_default_config().item_algorithm_config.classic.default_weights
+
+      package.loaded["neural-open.weights"] = {
+        get_weights = function()
+          return vim.deepcopy(item_default_weights)
+        end,
+        get_default_weights = function()
+          return vim.deepcopy(item_default_weights)
+        end,
+        save_weights = function() end,
+      }
+
+      -- Load classic algorithm with item feature names
+      local classic = require("neural-open.algorithms.classic")
+      local item_scorer = require("neural-open.item_scorer")
+      local config = vim.deepcopy(helpers.get_default_config().item_algorithm_config.classic)
+      config.picker_name = "test_items"
+      config.feature_names = item_scorer.ITEM_FEATURE_NAMES
+      local classic_instance = classic.create_instance(config)
+      classic_instance.load_weights()
+
+      -- Item with full tracking data
+      item_picker_item = {
+        text = "build all",
+        value = "just build-all",
+        nos = {
+          neural_score = 42.5,
+          item_id = "just build-all",
+          raw_features = {
+            match = 80.0,
+            frecency = 5.0,
+            cwd_frecency = 3.0,
+            recency = 2,
+            cwd_recency = 1,
+            text_length_inv = 9,
+            not_last_selected = 1,
+          },
+          input_buf = { 0.75, 0.83, 0.75, 0.98, 0.99, 0.53, 1 },
+          ctx = {
+            cwd = "/test/project",
+            algorithm = classic_instance,
+            picker_name = "test_items",
+            tracking_data = {
+              frecency = {
+                ["just build-all"] = 5.0,
+                ["just test"] = 3.0,
+                ["just lint"] = 1.0,
+              },
+              cwd_frecency = {
+                ["just build-all"] = 3.0,
+                ["just test"] = 2.0,
+              },
+              recency_rank = {
+                ["just build-all"] = 1,
+                ["just test"] = 2,
+                ["just lint"] = 3,
+              },
+              cwd_recency_rank = {
+                ["just build-all"] = 1,
+                ["just test"] = 2,
+              },
+              last_selected = "just test",
+            },
+          },
+        },
+      }
+
+      -- Item with empty tracking data
+      item_picker_item_empty_tracking = {
+        text = "new command",
+        nos = {
+          neural_score = 10.0,
+          item_id = "new command",
+          raw_features = {
+            match = 50.0,
+            frecency = 0,
+            cwd_frecency = 0,
+            recency = 0,
+            cwd_recency = 0,
+            text_length_inv = 11,
+            not_last_selected = 1,
+          },
+          input_buf = { 0.5, 0, 0, 0, 0, 0.48, 1 },
+          ctx = {
+            cwd = "/test/project",
+            algorithm = classic_instance,
+            picker_name = "test_items",
+            tracking_data = {
+              frecency = {},
+              cwd_frecency = {},
+              recency_rank = {},
+              cwd_recency_rank = {},
+              last_selected = nil,
+            },
+          },
+        },
+      }
+
+      -- Mock context for item picker
+      item_ctx = {
+        item = nil,
+        preview = {
+          lines = {},
+          reset = function(self)
+            self.lines = {}
+          end,
+          minimal = function() end,
+          set_lines = function(self, lines)
+            self.lines = lines
+          end,
+          set_title = function() end,
+          highlight = function() end,
+        },
+        picker = {
+          items = function()
+            return { item_picker_item, item_picker_item_empty_tracking }
+          end,
+        },
+      }
+
+      -- Mock config
+      local test_config = helpers.get_default_config()
+      test_config.algorithm = "classic"
+      package.loaded["neural-open"] = {
+        config = test_config,
+      }
+    end)
+
+    it("shows all sections for item with full tracking data", function()
+      item_ctx.item = item_picker_item
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local found_item_preview = false
+      local found_text = false
+      local found_value = false
+      local found_picker = false
+      local found_features = false
+      local found_frecent_global = false
+      local found_frecent_cwd = false
+      local found_recent_cwd = false
+      local found_metadata = false
+
+      for _, line in ipairs(lines) do
+        if line:match("Preview") then
+          found_item_preview = true
+        end
+        if line:match("Text:.*build all") then
+          found_text = true
+        end
+        if line:match("Value:.*just build%-all") then
+          found_value = true
+        end
+        if line:match("Picker:.*test_items") then
+          found_picker = true
+        end
+        if line:match("Features:") then
+          found_features = true
+        end
+        if line:match("Frecent Items %(Global%)") then
+          found_frecent_global = true
+        end
+        if line:match("Frecent Items %(CWD%)") then
+          found_frecent_cwd = true
+        end
+        if line:match("Recent Items %(CWD%)") then
+          found_recent_cwd = true
+        end
+        if line:match("Metadata") then
+          found_metadata = true
+        end
+      end
+
+      assert.is_true(found_item_preview, "Should show Preview title")
+      assert.is_true(found_text, "Should show item text")
+      assert.is_true(found_value, "Should show item value when different from text")
+      assert.is_true(found_picker, "Should show picker name")
+      assert.is_true(found_features, "Should show features section")
+      assert.is_true(found_frecent_global, "Should show frecent items (global)")
+      assert.is_true(found_frecent_cwd, "Should show frecent items (CWD)")
+      assert.is_true(found_recent_cwd, "Should show recent items (CWD)")
+      assert.is_true(found_metadata, "Should show metadata section")
+    end)
+
+    it("renders gracefully with empty tracking data", function()
+      item_ctx.item = item_picker_item_empty_tracking
+      assert.has_no.errors(function()
+        debug.debug_preview(item_ctx)
+      end)
+
+      local lines = item_ctx.preview.lines
+      assert.is_true(#lines > 0, "Should generate output")
+
+      local found_item_preview = false
+      local found_text = false
+
+      for _, line in ipairs(lines) do
+        if line:match("Preview") then
+          found_item_preview = true
+        end
+        if line:match("Text:.*new command") then
+          found_text = true
+        end
+      end
+
+      assert.is_true(found_item_preview, "Should show Preview title")
+      assert.is_true(found_text, "Should show item text")
+    end)
+
+    it("shows correct 7 feature names in algorithm debug_view", function()
+      item_ctx.item = item_picker_item
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local item_features_shown = {
+        match = false,
+        frecency = false,
+        cwd_frecency = false,
+        recency = false,
+        cwd_recency = false,
+        text_length_inv = false,
+        not_last_selected = false,
+      }
+
+      for _, line in ipairs(lines) do
+        for feature in pairs(item_features_shown) do
+          local formatted = feature:gsub("_", " "):sub(1, 1):upper() .. feature:gsub("_", " "):sub(2)
+          if line:match(formatted) and line:match("%d+%.%d+") then
+            item_features_shown[feature] = true
+          end
+        end
+      end
+
+      for feature, shown in pairs(item_features_shown) do
+        assert.is_true(shown, "Item feature '" .. feature .. "' should be shown")
+      end
+
+      -- Verify file-only features are NOT shown
+      local file_only_found = false
+      for _, line in ipairs(lines) do
+        if line:match("Virtual name") and line:match("%d+%.%d+") then
+          file_only_found = true
+        end
+      end
+      assert.is_false(file_only_found, "File-only feature 'virtual_name' should NOT be shown for item pickers")
+    end)
+
+    it("does not show file-specific sections", function()
+      item_ctx.item = item_picker_item
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local found_trigram = false
+      local found_transitions = false
+      local found_recent_files = false
+
+      for _, line in ipairs(lines) do
+        if line:match("Trigram Similarity") then
+          found_trigram = true
+        end
+        if line:match("Transitions %(Current File%)") then
+          found_transitions = true
+        end
+        if line:match("Recent Files") then
+          found_recent_files = true
+        end
+      end
+
+      assert.is_false(found_trigram, "Should NOT show trigram section for item pickers")
+      assert.is_false(found_transitions, "Should NOT show transitions for item pickers")
+      assert.is_false(found_recent_files, "Should NOT show recent files for item pickers")
+    end)
+
+    it("shows user preview content when user_preview captures sync output", function()
+      item_ctx.item = item_picker_item
+      item_ctx.meta = {
+        nos_user_preview = function(preview_ctx)
+          preview_ctx.preview:set_lines({
+            "recipe build-all:",
+            "    cargo build --release",
+            "    echo 'done'",
+          })
+        end,
+      }
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local found_recipe_line = false
+      local found_numbered_line = false
+
+      for _, line in ipairs(lines) do
+        if line:match("recipe build%-all") then
+          found_recipe_line = true
+        end
+        -- Should have numbered format like file preview: "  NNN  content"
+        if line:match("^%s+%d+%s+") then
+          found_numbered_line = true
+        end
+      end
+
+      assert.is_true(found_recipe_line, "Should show user preview content")
+      assert.is_true(found_numbered_line, "Should show numbered preview lines like file preview")
+    end)
+
+    it("falls back to text/value when user_preview is async (no set_lines)", function()
+      item_ctx.item = item_picker_item
+      item_ctx.meta = {
+        nos_user_preview = function()
+          -- Simulates async preview that doesn't call set_lines synchronously
+        end,
+      }
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local found_text = false
+
+      for _, line in ipairs(lines) do
+        if line:match("Text:.*build all") then
+          found_text = true
+        end
+      end
+
+      assert.is_true(found_text, "Should fall back to text display when preview capture fails")
+    end)
+
+    it("limits user preview capture to 10 lines", function()
+      item_ctx.item = item_picker_item
+      local many_lines = {}
+      for i = 1, 20 do
+        many_lines[i] = "line " .. i
+      end
+      item_ctx.meta = {
+        nos_user_preview = function(preview_ctx)
+          preview_ctx.preview:set_lines(many_lines)
+        end,
+      }
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local preview_line_count = 0
+
+      for _, line in ipairs(lines) do
+        -- Count numbered preview lines (format: "  NNN  content")
+        if line:match("^%s+%d+%s+line %d+") then
+          preview_line_count = preview_line_count + 1
+        end
+      end
+
+      assert.equals(10, preview_line_count, "Should limit preview to 10 lines")
+    end)
+
+    it("falls back to text/value when no user_preview is provided", function()
+      item_ctx.item = item_picker_item
+      -- No meta.nos_user_preview set
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local found_text = false
+      local found_value = false
+
+      for _, line in ipairs(lines) do
+        if line:match("Text:.*build all") then
+          found_text = true
+        end
+        if line:match("Value:.*just build%-all") then
+          found_value = true
+        end
+      end
+
+      assert.is_true(found_text, "Should show text when no user preview")
+      assert.is_true(found_value, "Should show value when no user preview")
+    end)
+
+    it("gracefully handles user_preview that errors", function()
+      item_ctx.item = item_picker_item
+      item_ctx.meta = {
+        nos_user_preview = function()
+          error("preview failed!")
+        end,
+      }
+      assert.has_no.errors(function()
+        debug.debug_preview(item_ctx)
+      end)
+
+      local lines = item_ctx.preview.lines
+      local found_text = false
+      for _, line in ipairs(lines) do
+        if line:match("Text:.*build all") then
+          found_text = true
+        end
+      end
+
+      assert.is_true(found_text, "Should fall back to text display when preview errors")
+    end)
+  end)
 end)

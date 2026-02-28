@@ -22,7 +22,7 @@ Results are documented in `docs/benchmark-results.md`.
 - **`plugin/neural-open.lua`**: Neovim plugin file for native lazy loading, commands, `<Plug>` mappings, and autocmds (BufEnter for recency tracking, VimLeavePre for recency flush)
 - **`init.lua`**: Main plugin entry point, configuration management, and Snacks.nvim integration
 - **`source.lua`**: Snacks picker source implementation with file discovery and async processing
-- **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`) and `input_buf_to_features()` utility shared by all algorithms
+- **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`), `input_buf_to_features()` for file picker feature conversion, and `get_item_identity(item)` shared by all algorithms for unified file/item identity
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
 - **`recent.lua`**: File-path-based recency tracking with in-memory cache and debounced disk writes
 - **`item_tracking.lua`**: Generic frecency and recency tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Data persisted under `item_tracking` key in each picker's JSON file
@@ -84,10 +84,11 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - **Margin**: Default 1.0 (configurable) - minimum score difference required between positive and negative items
   - **Pairs**: Constructs (selected item, non-selected item) pairs for each user selection
   - **Hard Negatives**: Uses top-10 ranked items as negatives (focuses on most competitive items where fine distinctions matter)
-- **Match Dropout**: Randomly drops out match and virtual_name features during training (default 25%)
+- **Match Dropout**: Randomly drops out match features (and virtual_name for file pickers) during training (default 25%)
   - Applied consistently to both positive and negative items in each pair (same dropout decision)
+  - For item pickers, only the match feature is dropped (virtual_name does not exist in the 7-feature pipeline)
   - Forces network to learn from non-search features (frecency, proximity, etc.)
-  - Improves file ranking before any search query is typed
+  - Improves ranking before any search query is typed
   - Only applied during training, not during inference
 - **Optimizers**: Supports SGD and AdamW optimizers
   - **SGD**: Simple gradient descent with weight decay (L2 regularization)
@@ -115,7 +116,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 
 - **Weights directory**: Per-picker JSON files in the configured `weights_path` directory (default `~/.local/share/nvim/neural-open/`). The file picker stores data in `files.json`; future pickers get their own files (e.g., `just_recipes.json`)
   - Classic algorithm: Feature weights
-  - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with normalized absolute paths for positive_file/negative_file), ranking accuracy metrics, and format version
+  - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with `normalized_path` for file pickers or `item_id` for item pickers as positive_file/negative_file), ranking accuracy metrics, and format version
   - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
   - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
   - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, and CWD-scoped recency lists. Deadline-based exponential decay (30-day half-life), debounced persistence
@@ -156,6 +157,7 @@ The project uses Busted for testing with comprehensive test coverage including:
 - Type safety validation for the simplified `nos` field structure
 - End-to-end multi-picker pipeline validation (item/file transforms, scoring correctness, weight learning isolation, auto-migration)
 - Per-picker state isolation regression tests (NN architecture independence, classic weight independence, weight save routing per picker_name)
+- Item picker debug preview validation (correct 7-feature names, type-specific sections, file-only sections suppressed)
 
 **Test Isolation**: Tests run in complete isolation using temporary XDG directories to protect your real Neovim environment. Always use `just test` to ensure proper isolation.
 

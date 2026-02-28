@@ -255,6 +255,13 @@ function M.normalize_features(raw_features)
   }
 end
 
+--- Get a unique identity for an item (file path or item_id)
+---@param item table
+---@return string?
+function M.get_item_identity(item)
+  return item.file or (item.nos and item.nos.item_id)
+end
+
 --- Handle match scoring for an item during search
 --- This is called each time the search query changes
 ---@param matcher table The Snacks matcher instance

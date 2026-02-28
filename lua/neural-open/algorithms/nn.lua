@@ -36,6 +36,17 @@ local function new_state()
   }
 end
 
+--- Default feature names in input order (file picker, 11 features)
+local scorer = require("neural-open.scorer")
+local DEFAULT_FEATURE_NAMES = scorer.FEATURE_NAMES
+
+--- Get feature names for a state table (respects per-picker config override)
+---@param st table State table
+---@return string[]
+local function get_feature_names(st)
+  return st.config.feature_names or DEFAULT_FEATURE_NAMES
+end
+
 --- Initialize a state table with configuration (validation + setup)
 local function init_state(st, config)
   st.config = vim.deepcopy(config or {})
@@ -69,6 +80,18 @@ local function init_state(st, config)
       if rate < 0 or rate >= 1 then
         error(string.format("Dropout rate for layer %d must be in [0, 1) range, got %.2f", i, rate))
       end
+    end
+  end
+
+  -- Precompute feature indices for match dropout
+  local feature_names = get_feature_names(st)
+  st.match_idx = nil
+  st.virtual_name_idx = nil
+  for i, name in ipairs(feature_names) do
+    if name == "match" then
+      st.match_idx = i
+    elseif name == "virtual_name" then
+      st.virtual_name_idx = i
     end
   end
 
@@ -717,32 +740,37 @@ local function average_gradients(gradients, batch_size)
   end
 end
 
---- Canonical feature names in input order (shared from scorer)
-local FEATURE_NAMES = require("neural-open.scorer").FEATURE_NAMES
-
 --- Convert a flat input buffer to matrix format with optional match dropout
 ---@param input_buf number[] Flat array of normalized features in canonical order
 ---@param drop_match_features? boolean Whether to zero out match/virtual_name features
+---@param match_idx? number Index of match feature in input_buf
+---@param virtual_name_idx? number Index of virtual_name feature (nil for item pickers)
 ---@return table Input matrix
-local function features_to_input(input_buf, drop_match_features)
+local function features_to_input(input_buf, drop_match_features, match_idx, virtual_name_idx)
   -- Copy is required: input_buf is a shared mutable buffer; dropout would corrupt it
   local input = {}
   for i = 1, #input_buf do
     input[i] = input_buf[i]
   end
   if drop_match_features then
-    input[1] = 0 -- match
-    input[2] = 0 -- virtual_name
+    if match_idx then
+      input[match_idx] = 0
+    end
+    if virtual_name_idx then
+      input[virtual_name_idx] = 0
+    end
   end
   return { input } -- nn_core matrix format: { {v1, v2, ...} }
 end
 
 --- Convert input_buf flat array to named features table (for debug/display only)
 ---@param input_buf number[] Flat array of normalized features in canonical order
+---@param feature_names? string[] Feature names to use (defaults to DEFAULT_FEATURE_NAMES)
 ---@return table<string, number>
-local function input_buf_to_features(input_buf)
+local function input_buf_to_features(input_buf, feature_names)
+  local names = feature_names or DEFAULT_FEATURE_NAMES
   local features = {}
-  for i, name in ipairs(FEATURE_NAMES) do
+  for i, name in ipairs(names) do
     features[name] = input_buf[i]
   end
   return features
@@ -1363,7 +1391,7 @@ local function calculate_score_impl(st, input_buf)
 
   if not st.inference_cache then
     -- Fallback to general forward_pass when inference cache unavailable (e.g., empty/invalid weights)
-    local input = features_to_input(input_buf, false)
+    local input = features_to_input(input_buf, false, st.match_idx, st.virtual_name_idx)
     local activations = forward_pass(
       input,
       st.weights,
@@ -1432,8 +1460,10 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
 
   -- Find selected item's rank
   local selected_rank = 1
+  local selected_id = scorer.get_item_identity(selected_item)
   for i, item in ipairs(ranked_items) do
-    if item.file == selected_item.file then
+    local id = scorer.get_item_identity(item)
+    if selected_id and id and selected_id == id then
       selected_rank = i
       break
     end
@@ -1456,7 +1486,8 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
     local candidate_pool = {}
     for _, item in ipairs(ranked_items) do
       -- Skip the selected item itself
-      if item.file ~= selected_item.file then
+      local item_id = scorer.get_item_identity(item)
+      if not selected_id or not item_id or item_id ~= selected_id then
         table.insert(candidate_pool, item)
         -- Stop when we have 10 hard negatives
         if #candidate_pool >= 10 then
@@ -1472,10 +1503,10 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
         -- Decide once per pair whether to drop match features (applies to both positive and negative)
         local drop_match = math.random() < match_dropout_rate
         table.insert(pairs_result, {
-          positive_input = features_to_input(positive_input_buf, drop_match),
-          negative_input = features_to_input(neg_input_buf, drop_match),
-          positive_file = selected_item.nos.normalized_path,
-          negative_file = neg_item.nos.normalized_path,
+          positive_input = features_to_input(positive_input_buf, drop_match, st.match_idx, st.virtual_name_idx),
+          negative_input = features_to_input(neg_input_buf, drop_match, st.match_idx, st.virtual_name_idx),
+          positive_file = selected_item.nos.normalized_path or selected_item.nos.item_id,
+          negative_file = neg_item.nos.normalized_path or neg_item.nos.item_id,
         })
         st.stats.samples_processed = st.stats.samples_processed + 1
       end
@@ -1753,12 +1784,8 @@ local function debug_view_impl(st, item, all_items)
 
   -- Match dropout configuration
   if config.match_dropout and config.match_dropout > 0 then
-    fmt.add_label(
-      lines,
-      hl,
-      "Match Dropout",
-      string.format("%.1f%% (match/virtual_name features)", config.match_dropout * 100)
-    )
+    local dropout_desc = st.virtual_name_idx and "match/virtual_name features" or "match features"
+    fmt.add_label(lines, hl, "Match Dropout", string.format("%.1f%% (%s)", config.match_dropout * 100, dropout_desc))
   end
 
   table.insert(lines, "")
@@ -1862,13 +1889,14 @@ local function debug_view_impl(st, item, all_items)
   end
 
   -- Combined feature table (importance + current values), sorted by importance
+  local feature_names = get_feature_names(st)
   local normalized_features = nil
   if item.nos and item.nos.input_buf then
-    normalized_features = input_buf_to_features(item.nos.input_buf)
+    normalized_features = input_buf_to_features(item.nos.input_buf, feature_names)
   end
 
   if st.weights and st.weights[1] then
-    local feature_order = FEATURE_NAMES
+    local feature_order = feature_names
 
     -- Compute importance (L1 norm of first-layer weights per feature)
     local feature_data = {}
@@ -1910,7 +1938,7 @@ local function debug_view_impl(st, item, all_items)
     table.insert(lines, "")
 
     -- No match dropout during inference/debug
-    local input = features_to_input(item.nos.input_buf, false)
+    local input = features_to_input(item.nos.input_buf, false, st.match_idx, st.virtual_name_idx)
 
     -- Get logit output for debug info
     local activations_logit = forward_pass(

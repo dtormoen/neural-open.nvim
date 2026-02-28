@@ -326,8 +326,10 @@ local function debug_view_impl(cs, item, all_items)
 
       -- Find current item's rank
       local current_rank = nil
+      local id = scorer.get_item_identity(item)
       for i, ranked_item in ipairs(all_items) do
-        if ranked_item.file == item.file then
+        local ranked_id = scorer.get_item_identity(ranked_item)
+        if id and ranked_id and id == ranked_id then
           current_rank = i
           item.neural_rank = i
           break
