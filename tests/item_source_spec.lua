@@ -95,6 +95,36 @@ describe("item_source module", function()
       assert.is_true(tracking.frecency["build"] > 0)
       assert.equals("build", tracking.last_selected)
     end)
+
+    it("populates transition_scores when last_cwd_selected exists", function()
+      local item_tracking = require("neural-open.item_tracking")
+      local cwd = vim.fn.getcwd()
+
+      -- Record two selections to establish a transition: build -> test
+      item_tracking.record_selection("test_picker", "build", cwd)
+      item_tracking.record_selection("test_picker", "test", cwd)
+
+      local ctx = { meta = {} }
+      local config = helpers.get_default_config()
+
+      item_source.capture_context("test_picker", ctx, config)
+
+      -- last_cwd_selected is "test", which has no outgoing transitions
+      -- But "build" -> "test" was recorded, so transition_scores from "test" is empty
+      -- Let's check that transition_scores field exists
+      -- The context should have transition_scores (possibly empty table or nil)
+      assert.is_not_nil(ctx.meta.nos_ctx)
+
+      -- Now record another selection so "test" has outgoing transitions
+      item_tracking.record_selection("test_picker", "build", cwd)
+
+      local ctx2 = { meta = {} }
+      item_source.capture_context("test_picker", ctx2, config)
+
+      -- last_cwd_selected is "build", which has transition to "test"
+      assert.is_not_nil(ctx2.meta.nos_ctx.transition_scores)
+      assert.is_true(ctx2.meta.nos_ctx.transition_scores["test"] > 0)
+    end)
   end)
 
   describe("create_item_transform", function()
@@ -151,7 +181,7 @@ describe("item_source module", function()
       assert.equals("test", item.nos.item_id)
       assert.is_not_nil(item.nos.raw_features)
       assert.is_not_nil(item.nos.input_buf)
-      assert.equals(7, #item.nos.input_buf)
+      assert.equals(8, #item.nos.input_buf)
       assert.equals(0, item.nos.neural_score)
       assert.equals(ctx.meta.nos_ctx, item.nos.ctx)
     end)
@@ -239,6 +269,27 @@ describe("item_source module", function()
       assert.equals(1, item.nos.input_buf[7])
     end)
 
+    it("computes transition feature from transition_scores", function()
+      -- Add transition_scores to context
+      ctx.meta.nos_ctx.transition_scores = { build = 0.7, test = 0.3 }
+
+      local item = { text = "build", value = "build" }
+      transform(item, ctx)
+
+      assert.equals(0.7, item.nos.raw_features.transition)
+      assert.are.near(0.7, item.nos.input_buf[8], 1e-10)
+    end)
+
+    it("sets transition to 0 when no transition_scores in context", function()
+      ctx.meta.nos_ctx.transition_scores = nil
+
+      local item = { text = "build", value = "build" }
+      transform(item, ctx)
+
+      assert.equals(0, item.nos.raw_features.transition)
+      assert.equals(0, item.nos.input_buf[8])
+    end)
+
     it("handles items with no tracking history", function()
       local item = { text = "new_item", value = "new_item" }
       transform(item, ctx)
@@ -248,12 +299,14 @@ describe("item_source module", function()
       assert.equals(0, item.nos.raw_features.recency)
       assert.equals(0, item.nos.raw_features.cwd_recency)
       assert.equals(1, item.nos.raw_features.not_last_selected)
+      assert.equals(0, item.nos.raw_features.transition)
 
-      -- Normalized: frecency=0, recency=0
+      -- Normalized: frecency=0, recency=0, transition=0
       assert.equals(0, item.nos.input_buf[2])
       assert.equals(0, item.nos.input_buf[3])
       assert.equals(0, item.nos.input_buf[4])
       assert.equals(0, item.nos.input_buf[5])
+      assert.equals(0, item.nos.input_buf[8])
     end)
 
     it("leaves match slot at 0 in input_buf", function()

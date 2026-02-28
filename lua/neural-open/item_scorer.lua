@@ -1,12 +1,12 @@
 --- Item picker scoring module.
---- Defines the 7-feature scoring pipeline for non-file item pickers.
+--- Defines the 8-feature scoring pipeline for non-file item pickers.
 --- Parallel to scorer.lua but for generic items (commands, recipes, etc.).
 local M = {}
 
 local math_exp = math.exp
 local scorer = require("neural-open.scorer")
 
---- Canonical feature names in input buffer order for item pickers (7 features)
+--- Canonical feature names in input buffer order for item pickers (8 features)
 M.ITEM_FEATURE_NAMES = {
   "match",
   "frecency",
@@ -15,6 +15,7 @@ M.ITEM_FEATURE_NAMES = {
   "cwd_recency",
   "text_length_inv",
   "not_last_selected",
+  "transition",
 }
 
 --- Convert a flat input buffer to a named features table

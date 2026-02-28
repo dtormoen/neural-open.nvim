@@ -364,6 +364,52 @@ local function render_item_sections(lines, hl, item)
       end)
     end
   end
+
+  -- Transitions (From Last Selected)
+  if ctx_data and ctx_data.transition_scores then
+    local transition_items = {}
+    for dest_id, score in pairs(ctx_data.transition_scores) do
+      if score > 0 then
+        table.insert(transition_items, { path = dest_id, score = score })
+      end
+    end
+
+    fmt.append_ranked_list(lines, hl, "Transitions (From Last Selected)", transition_items, function(i, entry)
+      return string.format("  %2d. %-50s  %.4f", i, entry.path:sub(1, 50), entry.score)
+    end)
+  end
+
+  -- Transitions (All Items)
+  local picker_name = ctx_data and ctx_data.picker_name
+  if picker_name then
+    local item_tracking = require("neural-open.item_tracking")
+    local transition_frecency = item_tracking.get_transition_frecency(picker_name)
+
+    if transition_frecency and next(transition_frecency) then
+      local now = os.time()
+      local half_life = 30 * 24 * 3600
+      local lambda = math.log(2) / half_life
+
+      local all_pairs = {}
+      for source, destinations in pairs(transition_frecency) do
+        for dest, deadline in pairs(destinations) do
+          local raw_score = math.exp(lambda * (deadline - now))
+          local normalized = 1 - 1 / (1 + raw_score / 4)
+          table.insert(all_pairs, { source = source, dest = dest, score = normalized })
+        end
+      end
+
+      fmt.append_ranked_list(lines, hl, "Transitions (All Items)", all_pairs, function(i, entry)
+        return string.format(
+          "  %2d. %-25s -> %-25s  %.4f",
+          i,
+          entry.source:sub(1, 25),
+          entry.dest:sub(1, 25),
+          entry.score
+        )
+      end)
+    end
+  end
 end
 
 --- Generate a detailed debug preview for a picker item

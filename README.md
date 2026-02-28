@@ -117,18 +117,18 @@ require("neural-open").setup({
   -- File sources for the default file picker
   file_sources = { "buffers", "recent", "files", "git_files" },
 
-  -- Algorithm config for item pickers (7-feature pipeline, separate from file pickers)
+  -- Algorithm config for item pickers (8-feature pipeline, separate from file pickers)
   item_algorithm_config = {
     classic = {
       learning_rate = 0.6,
       default_weights = {
         match = 140, frecency = 17, cwd_frecency = 15,
         recency = 9, cwd_recency = 8, text_length_inv = 3,
-        not_last_selected = 2,
+        not_last_selected = 2, transition = 5,
       },
     },
     nn = {
-      architecture = { 7, 16, 8, 1 },  -- 7 inputs for item features
+      architecture = { 8, 16, 8, 1 },  -- 8 inputs for item features
       optimizer = "adamw",
       learning_rate = 0.001,
       batch_size = 128,

@@ -431,6 +431,151 @@ describe("item_tracking module", function()
     end)
   end)
 
+  describe("transition tracking", function()
+    it("records transition from previous CWD selection", function()
+      -- First selection: no transition (no previous item)
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      -- Second selection: should record build -> test transition
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      local scores = item_tracking.compute_transition_scores("test_picker", "build")
+      assert.is_true(scores["test"] > 0)
+    end)
+
+    it("records self-transitions", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "build", "/proj")
+
+      local scores = item_tracking.compute_transition_scores("test_picker", "build")
+      assert.is_true(scores["build"] > 0)
+    end)
+
+    it("increases score with repeated transitions", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      local scores1 = item_tracking.compute_transition_scores("test_picker", "build")
+      local score1 = scores1["test"]
+
+      -- Go back and forth to record another build -> test
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      local scores2 = item_tracking.compute_transition_scores("test_picker", "build")
+      local score2 = scores2["test"]
+
+      assert.is_true(score2 > score1)
+    end)
+
+    it("tracks multiple destinations from same source", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "lint", "/proj")
+
+      local scores = item_tracking.compute_transition_scores("test_picker", "build")
+      assert.is_true(scores["test"] > 0)
+      assert.is_true(scores["lint"] > 0)
+    end)
+
+    it("scopes 'from' item by CWD", function()
+      -- Select in proj_a
+      item_tracking.record_selection("test_picker", "build", "/proj_a")
+      -- Select in proj_b (different CWD, no previous item in this CWD)
+      item_tracking.record_selection("test_picker", "test", "/proj_b")
+
+      -- No transition should be recorded from "build" because it was in a different CWD
+      local scores = item_tracking.compute_transition_scores("test_picker", "build")
+      assert.is_nil(scores["test"])
+    end)
+
+    it("returns empty scores for unknown source", function()
+      local scores = item_tracking.compute_transition_scores("test_picker", "nonexistent")
+      assert.same({}, scores)
+    end)
+
+    it("persists transitions through flush/reload", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test", "/proj")
+      item_tracking.flush("test_picker")
+
+      -- Reload module
+      item_tracking.reset()
+      package.loaded["neural-open.item_tracking"] = nil
+      item_tracking = require("neural-open.item_tracking")
+
+      local scores = item_tracking.compute_transition_scores("test_picker", "build")
+      assert.is_true(scores["test"] > 0)
+    end)
+
+    it("prunes destinations beyond limit", function()
+      local orig = item_tracking.MAX_TRANSITION_DESTINATIONS
+      item_tracking.MAX_TRANSITION_DESTINATIONS = 3
+
+      -- Create transitions: build -> item1, build -> item2, ..., build -> item5
+      for i = 1, 5 do
+        item_tracking.record_selection("test_picker", "build", "/proj")
+        item_tracking.record_selection("test_picker", "item" .. i, "/proj")
+      end
+
+      local scores = item_tracking.compute_transition_scores("test_picker", "build")
+      local count = 0
+      for _ in pairs(scores) do
+        count = count + 1
+      end
+      assert.equals(3, count)
+
+      item_tracking.MAX_TRANSITION_DESTINATIONS = orig
+    end)
+
+    it("prunes sources beyond limit", function()
+      local orig = item_tracking.MAX_TRANSITION_SOURCES
+      item_tracking.MAX_TRANSITION_SOURCES = 3
+
+      -- Create 5 different sources, each with one destination
+      for i = 1, 5 do
+        local source = "source" .. i
+        local dest = "dest" .. i
+        item_tracking.record_selection("test_picker", source, "/proj")
+        item_tracking.record_selection("test_picker", dest, "/proj")
+      end
+
+      local frecency = item_tracking.get_transition_frecency("test_picker")
+      local source_count = 0
+      for _ in pairs(frecency) do
+        source_count = source_count + 1
+      end
+      assert.is_true(source_count <= 3)
+
+      item_tracking.MAX_TRANSITION_SOURCES = orig
+    end)
+
+    it("returns get_transition_frecency table for debug views", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      local frecency = item_tracking.get_transition_frecency("test_picker")
+      assert.is_not_nil(frecency["build"])
+      assert.is_not_nil(frecency["build"]["test"])
+    end)
+
+    it("returns last_cwd_selected in tracking data", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      local data = item_tracking.get_tracking_data("test_picker", "/proj")
+      assert.equals("test", data.last_cwd_selected)
+    end)
+
+    it("returns nil last_cwd_selected for unknown CWD", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+
+      local data = item_tracking.get_tracking_data("test_picker", "/unknown")
+      assert.is_nil(data.last_cwd_selected)
+    end)
+  end)
+
   describe("reset", function()
     it("clears all cached data", function()
       item_tracking.record_selection("test_picker", "build", "/proj")

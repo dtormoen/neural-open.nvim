@@ -25,9 +25,9 @@ Results are documented in `docs/benchmark-results.md`.
 - **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`), `input_buf_to_features()` for file picker feature conversion, and `get_item_identity(item)` shared by all algorithms for unified file/item identity
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
 - **`recent.lua`**: File-path-based recency tracking with in-memory cache and debounced disk writes
-- **`item_tracking.lua`**: Generic frecency and recency tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Data persisted under `item_tracking` key in each picker's JSON file
+- **`item_tracking.lua`**: Generic frecency, recency, and transition tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Includes item-to-item transition frecency (CWD-scoped source tracking, pruned destinations/sources). Data persisted under `item_tracking` key in each picker's JSON file
 - **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
-- **`item_scorer.lua`**: 7-feature scoring pipeline for non-file item pickers. Owns `ITEM_FEATURE_NAMES` (canonical feature ordering: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected), normalization functions, and allocation-free `on_match_handler`. Parallel to `scorer.lua`
+- **`item_scorer.lua`**: 8-feature scoring pipeline for non-file item pickers. Owns `ITEM_FEATURE_NAMES` (canonical feature ordering: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected, transition), normalization functions, and allocation-free `on_match_handler`. Parallel to `scorer.lua`
 - **`item_source.lua`**: Context capture and per-item transform for non-file item pickers. Loads item tracking data, initializes algorithm via `registry.get_algorithm_for_picker`, computes static features. Parallel to `source.lua`
 - **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker stores weights in `<weights_dir>/<picker_name>.json`
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
@@ -38,14 +38,14 @@ See @lua/neural-open/types.lua for critical types.
 
 IMPORTANT: ensure that types are always up to date. Try to make types non-optional when possible.
 
-The plugin uses a dedicated `nos` field on picker items to encapsulate all neural-open specific data. File pickers use `NosItemData` (11 features), item pickers use `NosItemPickerData` (7 features). See `types.lua` for full definitions.
+The plugin uses a dedicated `nos` field on picker items to encapsulate all neural-open specific data. File pickers use `NosItemData` (11 features), item pickers use `NosItemPickerData` (8 features). See `types.lua` for full definitions.
 
 **File picker `nos` field** (`NosItemData`):
 - **input_buf**: Pre-allocated flat array of 11 normalized features. Static features filled at transform time; dynamic features (match, virtual_name, frecency) updated inline per keystroke. Feature order is defined by `FEATURE_NAMES` in `scorer.lua`.
 - **raw_features**, **neural_score**, **normalized_path**, **virtual_name**, **is_open_buffer**, **is_alternate**, **recent_rank**, **ctx** (NosContext)
 
 **Item picker `nos` field** (`NosItemPickerData`):
-- **input_buf**: Pre-allocated flat array of 7 normalized features. Only match is dynamic (updated per keystroke). Feature order defined by `ITEM_FEATURE_NAMES` in `item_scorer.lua`.
+- **input_buf**: Pre-allocated flat array of 8 normalized features. Only match is dynamic (updated per keystroke). Feature order defined by `ITEM_FEATURE_NAMES` in `item_scorer.lua`.
 - **raw_features**, **neural_score**, **item_id**, **ctx** (NosItemContext)
 
 This structure provides clean separation between plugin-specific data and native Snacks picker fields. All algorithms use a unified scoring pipeline: raw_features → input_buf (flat pre-allocated buffer with static features pre-normalized at transform time, dynamic features updated inline per keystroke) → `calculate_score(input_buf)` → neural_score. For the NN algorithm, inference uses a pre-computed fused cache (batch norm folded into weights at load time) for zero-allocation scoring. Classic pre-computes a positional weight array at weight-load time for a dot-product hot path. `scorer.normalize_features()` is retained as a utility for debug views and weight learning.
@@ -86,7 +86,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - **Hard Negatives**: Uses top-10 ranked items as negatives (focuses on most competitive items where fine distinctions matter)
 - **Match Dropout**: Randomly drops out match features (and virtual_name for file pickers) during training (default 25%)
   - Applied consistently to both positive and negative items in each pair (same dropout decision)
-  - For item pickers, only the match feature is dropped (virtual_name does not exist in the 7-feature pipeline)
+  - For item pickers, only the match feature is dropped (virtual_name does not exist in the 8-feature pipeline)
   - Forces network to learn from non-search features (frecency, proximity, etc.)
   - Improves ranking before any search query is typed
   - Only applied during training, not during inference
@@ -119,7 +119,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with `normalized_path` for file pickers or `item_id` for item pickers as positive_file/negative_file), ranking accuracy metrics, and format version
   - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
   - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
-  - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, and CWD-scoped recency lists. Deadline-based exponential decay (30-day half-life), debounced persistence
+  - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, CWD-scoped recency lists, and item-to-item transition frecency. Deadline-based exponential decay (30-day half-life), debounced persistence
 - **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. If `weights_path` is configured as a `.json` file path, a deprecation warning is logged and the parent directory is used
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI
@@ -140,7 +140,7 @@ The plugin exposes a generic `pick()` API for creating arbitrary item pickers wi
 
 - **`M.register_picker(name, config)`**: Stores a picker config in the registry for later use. `config.type` defaults to `"item"`.
 - **`M.pick(name, opts)`**: Opens a picker. Registers inline if not previously registered; merges `opts` over existing registration. Builds and registers a Snacks source (`neural_open_<name>`), then opens it.
-  - `type = "item"` (default): Uses 7-feature item scoring pipeline (`item_source.lua` + `item_scorer.lua`). Confirm handler records selection via `item_tracking` and triggers weight learning when rank > 1.
+  - `type = "item"` (default): Uses 8-feature item scoring pipeline (`item_source.lua` + `item_scorer.lua`). Confirm handler records selection via `item_tracking` and triggers weight learning when rank > 1.
   - `type = "file"`: Uses 11-feature file scoring pipeline (`source.lua` + `scorer.lua`) with per-picker weight isolation. Custom finder replaces the default multi-finder.
 - **`M.open()`**: Unchanged — opens the default file picker.
 - **`:NeuralOpen pick <name>`**: Opens a registered picker by name.
@@ -157,7 +157,7 @@ The project uses Busted for testing with comprehensive test coverage including:
 - Type safety validation for the simplified `nos` field structure
 - End-to-end multi-picker pipeline validation (item/file transforms, scoring correctness, weight learning isolation, auto-migration)
 - Per-picker state isolation regression tests (NN architecture independence, classic weight independence, weight save routing per picker_name)
-- Item picker debug preview validation (correct 7-feature names, type-specific sections, file-only sections suppressed)
+- Item picker debug preview validation (correct 8-feature names, type-specific sections, file-only sections suppressed, item transition sections displayed)
 
 **Test Isolation**: Tests run in complete isolation using temporary XDG directories to protect your real Neovim environment. Always use `just test` to ensure proper isolation.
 
@@ -314,7 +314,7 @@ The plugin is highly configurable with settings for:
 - **Learning rate adjustments**: Per-algorithm learning rate configuration
 - **Database location and persistence**: Configurable storage directory for per-picker weight files (`weights_path`)
 - **Scoring weights and factors**: Customizable feature weights for Classic algorithm
-- **Item picker algorithm config**: Separate algorithm configurations for non-file pickers via `item_algorithm_config` (7-feature pipeline: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected). Default NN architecture is `{7, 16, 8, 1}`
+- **Item picker algorithm config**: Separate algorithm configurations for non-file pickers via `item_algorithm_config` (8-feature pipeline: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected, transition). Default NN architecture is `{8, 16, 8, 1}`
 - **Regularization**: Weight decay, dropout rates, match_dropout, layer-specific decay multipliers for Neural Network
 - **Training stability**: Learning rate warmup for Neural Network (recommended for AdamW)
 - **Ranking margin**: Configurable margin for pairwise hinge loss (default 1.0) - controls minimum score difference between selected and non-selected items

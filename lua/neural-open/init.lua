@@ -55,11 +55,12 @@ M.config = {
         cwd_recency = 8,
         text_length_inv = 3,
         not_last_selected = 2,
+        transition = 5,
       },
     },
     naive = {},
     nn = {
-      architecture = { 7, 16, 8, 1 }, -- 7 inputs for item features
+      architecture = { 8, 16, 8, 1 }, -- 8 inputs for item features
       optimizer = "adamw",
       learning_rate = 0.001,
       batch_size = 128,
@@ -154,8 +155,8 @@ local function confirm_handler(picker, item)
         local source_file = item.nos.ctx.current_file
         local dest_file = item.nos.normalized_path
 
-        -- Only record if we have a valid source and dest is different
-        if source_file and source_file ~= "" and dest_file ~= source_file then
+        -- Only record if we have a valid source
+        if source_file and source_file ~= "" then
           latency.start(timing_ctx, "async.transition_record")
           local transitions = require("neural-open.transitions")
           transitions.record_transition(source_file, dest_file, timing_ctx)

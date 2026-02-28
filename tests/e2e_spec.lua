@@ -77,7 +77,7 @@ describe("end-to-end multi-picker", function()
   end)
 
   describe("item picker nos field", function()
-    it("attaches nos with 7 features via transform pipeline", function()
+    it("attaches nos with 8 features via transform pipeline", function()
       local item_source = require("neural-open.item_source")
       local item_scorer = require("neural-open.item_scorer")
       local config = helpers.get_default_config()
@@ -92,12 +92,12 @@ describe("end-to-end multi-picker", function()
 
       assert.is_not_nil(result)
       assert.is_not_nil(item.nos)
-      assert.equals(7, #item.nos.input_buf)
+      assert.equals(8, #item.nos.input_buf)
       assert.equals("build", item.nos.item_id)
       assert.is_not_nil(item.nos.raw_features)
       assert.is_not_nil(item.nos.ctx)
 
-      -- Verify all 7 feature names map to raw_features
+      -- Verify all 8 feature names map to raw_features
       for _, name in ipairs(item_scorer.ITEM_FEATURE_NAMES) do
         assert.is_not_nil(item.nos.raw_features[name], "missing raw feature: " .. name)
       end
@@ -334,15 +334,15 @@ describe("end-to-end multi-picker", function()
   end)
 
   describe("item_algorithm_config", function()
-    it("has defaults with 7-input NN architecture", function()
+    it("has defaults with 8-input NN architecture", function()
       local config = helpers.get_default_config()
       assert.is_not_nil(config.item_algorithm_config)
       assert.is_not_nil(config.item_algorithm_config.nn)
-      assert.equals(7, config.item_algorithm_config.nn.architecture[1])
+      assert.equals(8, config.item_algorithm_config.nn.architecture[1])
       assert.equals(1, config.item_algorithm_config.nn.architecture[#config.item_algorithm_config.nn.architecture])
     end)
 
-    it("has classic defaults with 7 feature weights", function()
+    it("has classic defaults with 8 feature weights", function()
       local config = helpers.get_default_config()
       local classic = config.item_algorithm_config.classic
       assert.is_not_nil(classic.default_weights)
@@ -353,6 +353,7 @@ describe("end-to-end multi-picker", function()
       assert.is_not_nil(classic.default_weights.cwd_recency)
       assert.is_not_nil(classic.default_weights.text_length_inv)
       assert.is_not_nil(classic.default_weights.not_last_selected)
+      assert.is_not_nil(classic.default_weights.transition)
     end)
   end)
 end)

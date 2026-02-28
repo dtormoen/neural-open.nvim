@@ -52,8 +52,8 @@ describe("Per-picker state isolation", function()
       local files_instance = nn.create_instance(files_cfg)
       files_instance.load_weights()
 
-      -- Item picker: 7 features
-      local recipes_cfg = nn_config({ architecture = { 7, 4, 1 } })
+      -- Item picker: 8 features
+      local recipes_cfg = nn_config({ architecture = { 8, 4, 1 } })
       recipes_cfg.picker_name = "recipes"
       local recipes_instance = nn.create_instance(recipes_cfg)
       recipes_instance.load_weights()
@@ -63,8 +63,8 @@ describe("Per-picker state isolation", function()
       local files_score_1 = files_instance.calculate_score(files_buf)
       assert.is_number(files_score_1)
 
-      -- Score with 7-element input on recipes instance
-      local recipes_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 }
+      -- Score with 8-element input on recipes instance
+      local recipes_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 }
       local recipes_score = recipes_instance.calculate_score(recipes_buf)
       assert.is_number(recipes_score)
 
@@ -81,13 +81,13 @@ describe("Per-picker state isolation", function()
       local files_instance = nn.create_instance(files_cfg)
       files_instance.load_weights()
 
-      local recipes_cfg = nn_config({ architecture = { 7, 4, 1 } })
+      local recipes_cfg = nn_config({ architecture = { 8, 4, 1 } })
       recipes_cfg.picker_name = "recipes_train"
       local recipes_instance = nn.create_instance(recipes_cfg)
       recipes_instance.load_weights()
 
       -- Capture baseline score for recipes
-      local recipes_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 }
+      local recipes_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 }
       local recipes_score_before = recipes_instance.calculate_score(recipes_buf)
 
       -- Train the files instance
@@ -243,7 +243,7 @@ describe("Per-picker state isolation", function()
       local files_instance = nn.create_instance(files_cfg)
       files_instance.load_weights()
 
-      local recipes_cfg = nn_config({ architecture = { 7, 4, 1 } })
+      local recipes_cfg = nn_config({ architecture = { 8, 4, 1 } })
       recipes_cfg.picker_name = "recipes"
       local recipes_instance = nn.create_instance(recipes_cfg)
       recipes_instance.load_weights()
@@ -270,25 +270,25 @@ describe("Per-picker state isolation", function()
       files_instance.update_weights(selected_11, ranked_11)
 
       -- Train recipes instance
-      local selected_7 = {
+      local selected_8 = {
         file = "recipe_a",
         nos = {
-          input_buf = { 0.9, 0.3, 0.2, 0.4, 0.3, 0.5, 1.0 },
+          input_buf = { 0.9, 0.3, 0.2, 0.4, 0.3, 0.5, 1.0, 0.2 },
           normalized_path = "recipe_a",
         },
         neural_rank = 2,
       }
-      local ranked_7 = {
+      local ranked_8 = {
         {
           file = "recipe_b",
           nos = {
-            input_buf = { 0.5, 0.1, 0.1, 0.1, 0.1, 0.3, 1.0 },
+            input_buf = { 0.5, 0.1, 0.1, 0.1, 0.1, 0.3, 1.0, 0.1 },
             normalized_path = "recipe_b",
           },
         },
-        selected_7,
+        selected_8,
       }
-      recipes_instance.update_weights(selected_7, ranked_7)
+      recipes_instance.update_weights(selected_8, ranked_8)
 
       -- Verify each save targeted the correct picker
       local files_saves = vim.tbl_filter(function(c)

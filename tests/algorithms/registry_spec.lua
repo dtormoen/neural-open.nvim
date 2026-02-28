@@ -173,13 +173,13 @@ describe("algorithm registry", function()
       end
 
       local algo_config = {
-        nn = { architecture = { 7, 16, 8, 1 }, optimizer = "adamw" },
+        nn = { architecture = { 8, 16, 8, 1 }, optimizer = "adamw" },
       }
       registry.get_algorithm_for_picker("nn", algo_config, "just_recipes")
 
       assert.is_not_nil(received_config)
       assert.equals("just_recipes", received_config.picker_name)
-      assert.same({ 7, 16, 8, 1 }, received_config.architecture)
+      assert.same({ 8, 16, 8, 1 }, received_config.architecture)
     end)
 
     it("deep copies config to prevent mutation of the original", function()
@@ -221,7 +221,7 @@ describe("algorithm registry", function()
 
     it("returns independent instances for different picker names", function()
       local algo_config = {
-        nn = { architecture = { 7, 16, 8, 1 } },
+        nn = { architecture = { 8, 16, 8, 1 } },
       }
       local instance_a = registry.get_algorithm_for_picker("nn", algo_config, "picker_a")
       local instance_b = registry.get_algorithm_for_picker("nn", algo_config, "picker_b")
@@ -239,7 +239,7 @@ describe("algorithm registry", function()
     it("uses create_instance when available, returning instance not module", function()
       local nn_module = package.loaded["neural-open.algorithms.nn"]
       local algo_config = {
-        nn = { architecture = { 7, 16, 8, 1 } },
+        nn = { architecture = { 8, 16, 8, 1 } },
       }
       local instance = registry.get_algorithm_for_picker("nn", algo_config, "test")
 

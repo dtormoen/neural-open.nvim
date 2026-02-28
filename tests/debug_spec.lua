@@ -361,8 +361,9 @@ describe("debug module", function()
             cwd_recency = 1,
             text_length_inv = 9,
             not_last_selected = 1,
+            transition = 0.35,
           },
-          input_buf = { 0.75, 0.83, 0.75, 0.98, 0.99, 0.53, 1 },
+          input_buf = { 0.75, 0.83, 0.75, 0.98, 0.99, 0.53, 1, 0.35 },
           ctx = {
             cwd = "/test/project",
             algorithm = classic_instance,
@@ -406,8 +407,9 @@ describe("debug module", function()
             cwd_recency = 0,
             text_length_inv = 11,
             not_last_selected = 1,
+            transition = 0,
           },
-          input_buf = { 0.5, 0, 0, 0, 0, 0.48, 1 },
+          input_buf = { 0.5, 0, 0, 0, 0, 0.48, 1, 0 },
           ctx = {
             cwd = "/test/project",
             algorithm = classic_instance,
@@ -534,7 +536,7 @@ describe("debug module", function()
       assert.is_true(found_text, "Should show item text")
     end)
 
-    it("shows correct 7 feature names in algorithm debug_view", function()
+    it("shows correct 8 feature names in algorithm debug_view", function()
       item_ctx.item = item_picker_item
       debug.debug_preview(item_ctx)
 
@@ -547,6 +549,7 @@ describe("debug module", function()
         cwd_recency = false,
         text_length_inv = false,
         not_last_selected = false,
+        transition = false,
       }
 
       for _, line in ipairs(lines) do
@@ -578,7 +581,7 @@ describe("debug module", function()
 
       local lines = item_ctx.preview.lines
       local found_trigram = false
-      local found_transitions = false
+      local found_file_transitions = false
       local found_recent_files = false
 
       for _, line in ipairs(lines) do
@@ -586,7 +589,7 @@ describe("debug module", function()
           found_trigram = true
         end
         if line:match("Transitions %(Current File%)") then
-          found_transitions = true
+          found_file_transitions = true
         end
         if line:match("Recent Files") then
           found_recent_files = true
@@ -594,8 +597,55 @@ describe("debug module", function()
       end
 
       assert.is_false(found_trigram, "Should NOT show trigram section for item pickers")
-      assert.is_false(found_transitions, "Should NOT show transitions for item pickers")
+      assert.is_false(found_file_transitions, "Should NOT show file transitions for item pickers")
       assert.is_false(found_recent_files, "Should NOT show recent files for item pickers")
+    end)
+
+    it("shows item transition sections when transition data exists", function()
+      -- Add transition_scores to context
+      item_picker_item.nos.ctx.transition_scores = {
+        ["just test"] = 0.45,
+        ["just lint"] = 0.20,
+      }
+
+      -- Mock item_tracking module for get_transition_frecency
+      local mock_time = os.time()
+      local half_life = 30 * 24 * 3600
+      local lambda = math.log(2) / half_life
+      -- Deadline that gives a score of ~1: deadline = now + ln(1)/lambda = now
+      local deadline_for_score_1 = mock_time + math.log(1) / lambda
+
+      package.loaded["neural-open.item_tracking"] = {
+        init = function() end,
+        reset = function() end,
+        get_transition_frecency = function()
+          return {
+            ["just build-all"] = { ["just test"] = deadline_for_score_1 },
+          }
+        end,
+      }
+
+      item_ctx.item = item_picker_item
+      debug.debug_preview(item_ctx)
+
+      local lines = item_ctx.preview.lines
+      local found_from_last = false
+      local found_all_items = false
+
+      for _, line in ipairs(lines) do
+        if line:match("Transitions %(From Last Selected%)") then
+          found_from_last = true
+        end
+        if line:match("Transitions %(All Items%)") then
+          found_all_items = true
+        end
+      end
+
+      assert.is_true(found_from_last, "Should show Transitions (From Last Selected) section")
+      assert.is_true(found_all_items, "Should show Transitions (All Items) section")
+
+      -- Clean up
+      package.loaded["neural-open.item_tracking"] = nil
     end)
 
     it("shows user preview content when user_preview captures sync output", function()

@@ -118,6 +118,7 @@
 ---@field cwd_frecency table<string, table<string, number>> CWD-scoped frecency: cwd -> { item_id -> deadline_timestamp }
 ---@field recency_list string[] Global ordered list of recent item selections (index 1 = most recent)
 ---@field cwd_recency table<string, string[]> CWD-scoped recency lists: cwd -> ordered list
+---@field transition_frecency table<string, table<string, number>> Item-to-item transition frecency: source_id -> { dest_id -> deadline_timestamp } (empty table if not yet tracked)
 
 --- Computed tracking data returned by get_tracking_data for feature computation
 ---@class NosItemTrackingData
@@ -126,8 +127,9 @@
 ---@field recency_rank table<string, number> Global recency ranks: item_id -> 1-based position
 ---@field cwd_recency_rank table<string, number> CWD-scoped recency ranks: item_id -> 1-based position
 ---@field last_selected string? Most recently selected item id (global)
+---@field last_cwd_selected string? Most recently selected item id in current CWD
 
---- Raw feature scores for item pickers (7 features)
+--- Raw feature scores for item pickers (8 features)
 ---@class NosItemRawFeatures
 ---@field match number Raw fuzzy match score from matcher (typically 0-200+)
 ---@field frecency number Raw global frecency score from item_tracking (0-∞)
@@ -136,8 +138,9 @@
 ---@field cwd_recency number Raw CWD-scoped recency rank (1-based, 0 if unranked)
 ---@field text_length_inv number Raw text length (used to compute inverse normalization)
 ---@field not_last_selected number Binary: 1 if NOT the most recently selected item, 0 if it is
+---@field transition number Transition frecency score from item_tracking, already [0,1] via 1-1/(1+raw/4)
 
---- Normalized feature scores for item pickers (7 features, all in [0,1])
+--- Normalized feature scores for item pickers (8 features, all in [0,1])
 ---@class NosItemNormalizedFeatures
 ---@field match number Normalized to [0,1] using sigmoid
 ---@field frecency number Normalized to [0,1] using 1 - 1/(1+x)
@@ -146,6 +149,7 @@
 ---@field cwd_recency number Normalized to [0,1] using linear decay (max - rank + 1) / max
 ---@field text_length_inv number Normalized to [0,1] using 1/(1+len*0.1)
 ---@field not_last_selected number Already [0,1] binary
+---@field transition number Already [0,1] from calculation (1-1/(1+score/4))
 
 --- Session context for item pickers
 ---@class NosItemContext
@@ -153,13 +157,14 @@
 ---@field algorithm Algorithm The scoring algorithm instance for this session
 ---@field tracking_data NosItemTrackingData Preloaded tracking data for feature computation
 ---@field picker_name string Name of the picker (for weight isolation)
+---@field transition_scores table<string, number>? Precomputed transition scores map (dest_id -> normalized score)
 
 --- Neural-open data attached to item picker items (the item.nos field)
 ---@class NosItemPickerData
----@field raw_features NosItemRawFeatures Raw computed feature scores (7 features)
+---@field raw_features NosItemRawFeatures Raw computed feature scores (8 features)
 ---@field neural_score number Total weighted score
 ---@field item_id string Item identity (item.value or item.text)
----@field input_buf number[] Pre-allocated flat array of 7 normalized features
+---@field input_buf number[] Pre-allocated flat array of 8 normalized features
 ---@field ctx NosItemContext Reference to shared session context
 
 --- Item picker item with neural-open data
@@ -172,7 +177,7 @@
 
 --- Configuration for a registered picker (passed to pick() or register_picker())
 ---@class NosPickerConfig
----@field type "file"|"item" Picker type: "file" uses 11-feature pipeline, "item" uses 7-feature pipeline (default "item")
+---@field type "file"|"item" Picker type: "file" uses 11-feature pipeline, "item" uses 8-feature pipeline (default "item")
 ---@field title string? Picker window title
 ---@field finder fun(opts: table, ctx: table): any Snacks finder function
 ---@field items table[]? Static items (alternative to finder for item pickers)
@@ -185,7 +190,7 @@
 ---@class NosConfig
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations for file pickers
----@field item_algorithm_config NosAlgorithmConfig Algorithm-specific configurations for item pickers (7-feature pipeline)
+---@field item_algorithm_config NosAlgorithmConfig Algorithm-specific configurations for item pickers (8-feature pipeline)
 ---@field weights_path string Directory path to store learned weights (per-picker JSON files)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)

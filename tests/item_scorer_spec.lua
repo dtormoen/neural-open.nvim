@@ -20,8 +20,8 @@ describe("item_scorer module", function()
   end)
 
   describe("ITEM_FEATURE_NAMES", function()
-    it("has exactly 7 features", function()
-      assert.equals(7, #item_scorer.ITEM_FEATURE_NAMES)
+    it("has exactly 8 features", function()
+      assert.equals(8, #item_scorer.ITEM_FEATURE_NAMES)
     end)
 
     it("has the correct feature ordering", function()
@@ -33,6 +33,7 @@ describe("item_scorer module", function()
         "cwd_recency",
         "text_length_inv",
         "not_last_selected",
+        "transition",
       }
       assert.same(expected, item_scorer.ITEM_FEATURE_NAMES)
     end)
@@ -40,7 +41,7 @@ describe("item_scorer module", function()
 
   describe("input_buf_to_features", function()
     it("converts flat array to named features", function()
-      local input_buf = { 0.5, 0.3, 0.2, 0.8, 0.6, 0.4, 1.0 }
+      local input_buf = { 0.5, 0.3, 0.2, 0.8, 0.6, 0.4, 1.0, 0.15 }
       local features = item_scorer.input_buf_to_features(input_buf)
 
       assert.equals(0.5, features.match)
@@ -50,10 +51,11 @@ describe("item_scorer module", function()
       assert.equals(0.6, features.cwd_recency)
       assert.equals(0.4, features.text_length_inv)
       assert.equals(1.0, features.not_last_selected)
+      assert.equals(0.15, features.transition)
     end)
 
     it("roundtrips with ITEM_FEATURE_NAMES", function()
-      local input_buf = { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7 }
+      local input_buf = { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8 }
       local features = item_scorer.input_buf_to_features(input_buf)
 
       -- Reconstruct from features
@@ -168,7 +170,7 @@ describe("item_scorer module", function()
     end)
 
     it("skips items without algorithm in context", function()
-      local item = { text = "test", nos = { ctx = {}, input_buf = { 0, 0, 0, 0, 0, 0, 0 }, raw_features = {} } }
+      local item = { text = "test", nos = { ctx = {}, input_buf = { 0, 0, 0, 0, 0, 0, 0, 0 }, raw_features = {} } }
       item_scorer.on_match_handler({}, item)
       assert.is_nil(item.score)
     end)
@@ -180,7 +182,7 @@ describe("item_scorer module", function()
         end,
       }
 
-      local input_buf = { 0, 0.3, 0.2, 0.8, 0.6, 0.4, 1.0 }
+      local input_buf = { 0, 0.3, 0.2, 0.8, 0.6, 0.4, 1.0, 0.5 }
       local item = {
         text = "build",
         nos = {
@@ -210,7 +212,7 @@ describe("item_scorer module", function()
         end,
       }
 
-      local input_buf = { 0, 0.3, 0.2, 0.8, 0.6, 0.4, 1.0 }
+      local input_buf = { 0, 0.3, 0.2, 0.8, 0.6, 0.4, 1.0, 0.5 }
       local item = {
         text = "build",
         nos = {

@@ -1,6 +1,6 @@
 --- Item picker source module.
 --- Handles context capture and per-item transform for non-file item pickers.
---- Parallel to source.lua but for generic items with 7 features instead of 11.
+--- Parallel to source.lua but for generic items with 8 features instead of 11.
 local M = {}
 
 --- Capture context for an item picker session.
@@ -27,6 +27,12 @@ function M.capture_context(picker_name, ctx, config)
   )
   algorithm.load_weights()
 
+  -- Compute transition scores from the last CWD-selected item
+  local transition_scores = nil
+  if tracking_data.last_cwd_selected then
+    transition_scores = item_tracking.compute_transition_scores(picker_name, tracking_data.last_cwd_selected)
+  end
+
   -- Store all context in a single field
   ctx.meta = ctx.meta or {}
   ctx.meta.nos_ctx = {
@@ -34,6 +40,7 @@ function M.capture_context(picker_name, ctx, config)
     algorithm = algorithm,
     tracking_data = tracking_data,
     picker_name = picker_name,
+    transition_scores = transition_scores,
   }
 end
 
@@ -76,6 +83,8 @@ function M.create_item_transform(picker_name, config, item_scorer)
     local last_selected = tracking_data.last_selected
     local text_len = #item.text
 
+    local transition_score = nos_ctx.transition_scores and nos_ctx.transition_scores[item_id] or 0
+
     local raw_features = {
       match = 0, -- Dynamic, updated per-keystroke in on_match_handler
       frecency = frecency,
@@ -84,6 +93,7 @@ function M.create_item_transform(picker_name, config, item_scorer)
       cwd_recency = cwd_recency_rank or 0,
       text_length_inv = text_len,
       not_last_selected = (item_id == last_selected) and 0 or 1,
+      transition = transition_score,
     }
 
     -- Pre-allocate input_buf with normalized static features.
@@ -99,6 +109,7 @@ function M.create_item_transform(picker_name, config, item_scorer)
       cwd_recency_val, -- [5] cwd_recency
       item_scorer.normalize_text_length(text_len), -- [6] text_length_inv
       raw_features.not_last_selected, -- [7] not_last_selected (binary)
+      transition_score, -- [8] transition (already normalized to [0,1])
     }
 
     -- Attach nos field to item

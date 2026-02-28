@@ -11,10 +11,12 @@ local DEBOUNCE_MS = 5000
 -- Pruning limits
 M.MAX_FRECENCY_ITEMS = 500
 M.MAX_CWD_FRECENCY_ITEMS = 200
+M.MAX_TRANSITION_DESTINATIONS = 50
+M.MAX_TRANSITION_SOURCES = 200
 
 --- In-memory cache keyed by picker_name.
---- Each entry holds the four tracking stores, loaded/dirty flags, and save timer.
----@type table<string, { frecency: table<string, number>, cwd_frecency: table<string, table<string, number>>, recency_list: string[], cwd_recency: table<string, string[]>, loaded: boolean, dirty: boolean, save_timer: uv.uv_timer_t? }>
+--- Each entry holds the tracking stores, loaded/dirty flags, and save timer.
+---@type table<string, { frecency: table<string, number>, cwd_frecency: table<string, table<string, number>>, recency_list: string[], cwd_recency: table<string, string[]>, transition_frecency: table<string, table<string, number>>, loaded: boolean, dirty: boolean, save_timer: uv.uv_timer_t? }>
 local cache = {}
 
 --- Get the maximum recency list size from config.
@@ -63,6 +65,56 @@ local function prune_frecency(frecency_map, max_count, now)
   end
 end
 
+--- Prune a destinations table in-place, keeping only top entries by score.
+---@param destinations table<string, number> Map of dest_id -> deadline
+---@param max_count number
+---@param now number
+local function prune_destinations(destinations, max_count, now)
+  local entries = {}
+  for dest, deadline in pairs(destinations) do
+    entries[#entries + 1] = { dest = dest, score = deadline_to_score(deadline, now) }
+  end
+
+  if #entries <= max_count then
+    return
+  end
+
+  table.sort(entries, function(a, b)
+    return a.score > b.score
+  end)
+
+  for i = max_count + 1, #entries do
+    destinations[entries[i].dest] = nil
+  end
+end
+
+--- Prune the sources table in-place, keeping only top entries by total score.
+---@param frecency table<string, table<string, number>>
+---@param max_count number
+---@param now number
+local function prune_sources(frecency, max_count, now)
+  local sources = {}
+  for source, destinations in pairs(frecency) do
+    local total_score = 0
+    for _, deadline in pairs(destinations) do
+      total_score = total_score + deadline_to_score(deadline, now)
+    end
+    sources[#sources + 1] = { source = source, score = total_score }
+  end
+
+  if #sources <= max_count then
+    return
+  end
+
+  table.sort(sources, function(a, b)
+    return a.score > b.score
+  end)
+
+  for i = max_count + 1, #sources do
+    frecency[sources[i].source] = nil
+  end
+end
+
 --- Ensure tracking data is loaded for a picker.
 ---@param picker_name string
 ---@return table Cache entry for this picker
@@ -81,6 +133,7 @@ local function ensure_loaded(picker_name)
     cwd_frecency = tracking.cwd_frecency or {},
     recency_list = tracking.recency_list or {},
     cwd_recency = tracking.cwd_recency or {},
+    transition_frecency = tracking.transition_frecency or {},
     loaded = true,
     dirty = false,
     save_timer = nil,
@@ -143,7 +196,7 @@ function M.init(picker_name)
   ensure_loaded(picker_name)
 end
 
---- Record that an item was selected. Updates all four tracking stores.
+--- Record that an item was selected. Updates all five tracking stores.
 ---@param picker_name string
 ---@param item_id string Item identity (caller resolves item.value or item.text)
 ---@param cwd string Current working directory
@@ -151,6 +204,9 @@ function M.record_selection(picker_name, item_id, cwd)
   local entry = ensure_loaded(picker_name)
   local now = os.time()
   local max_size = get_max_size()
+
+  -- Capture "from" item before recency lists are updated
+  local from_item = entry.cwd_recency[cwd] and entry.cwd_recency[cwd][1]
 
   -- 1. Global frecency: add 1 to score
   local current_score = 0
@@ -177,6 +233,19 @@ function M.record_selection(picker_name, item_id, cwd)
   local cwd_recency = entry.cwd_recency[cwd] or {}
   push_recency(cwd_recency, item_id, max_size)
   entry.cwd_recency[cwd] = cwd_recency
+
+  -- 5. Transition frecency: record from_item -> item_id
+  if from_item then
+    local destinations = entry.transition_frecency[from_item] or {}
+    local current_transition_score = 0
+    if destinations[item_id] then
+      current_transition_score = deadline_to_score(destinations[item_id], now)
+    end
+    destinations[item_id] = score_to_deadline(current_transition_score + 1, now)
+    prune_destinations(destinations, M.MAX_TRANSITION_DESTINATIONS, now)
+    entry.transition_frecency[from_item] = destinations
+    prune_sources(entry.transition_frecency, M.MAX_TRANSITION_SOURCES, now)
+  end
 
   entry.dirty = true
   schedule_save(picker_name)
@@ -223,13 +292,48 @@ function M.get_tracking_data(picker_name, cwd)
   -- Last selected is position 1 of global recency list
   local last_selected = entry.recency_list[1]
 
+  -- Last CWD-scoped selected is position 1 of CWD recency list
+  local last_cwd_selected = cwd_recency and cwd_recency[1] or nil
+
   return {
     frecency = frecency,
     cwd_frecency = cwd_frecency,
     recency_rank = recency_rank,
     cwd_recency_rank = cwd_recency_rank,
     last_selected = last_selected,
+    last_cwd_selected = last_cwd_selected,
   }
+end
+
+--- Compute transition scores from a source item to all destinations.
+--- Returns normalized scores in [0,1] via 1 - 1/(1+score/4).
+---@param picker_name string
+---@param source_item_id string Source item identity
+---@return table<string, number> Map of destination item ids to normalized scores
+function M.compute_transition_scores(picker_name, source_item_id)
+  local entry = ensure_loaded(picker_name)
+  local destinations = entry.transition_frecency[source_item_id]
+
+  if not destinations then
+    return {}
+  end
+
+  local now = os.time()
+  local scores = {}
+  for dest, deadline in pairs(destinations) do
+    local score = deadline_to_score(deadline, now)
+    scores[dest] = 1 - 1 / (1 + score / 4)
+  end
+
+  return scores
+end
+
+--- Get the raw transition frecency table for a picker (for debug views).
+---@param picker_name string
+---@return table<string, table<string, number>> Raw transition_frecency table (source -> {dest -> deadline})
+function M.get_transition_frecency(picker_name)
+  local entry = ensure_loaded(picker_name)
+  return entry.transition_frecency
 end
 
 --- Immediately persist tracking data for a picker. No-op if not dirty.
@@ -252,6 +356,7 @@ function M.flush(picker_name)
     cwd_frecency = entry.cwd_frecency,
     recency_list = entry.recency_list,
     cwd_recency = entry.cwd_recency,
+    transition_frecency = entry.transition_frecency,
   }
   db.save_weights(picker_name, all_weights)
 
