@@ -89,7 +89,7 @@
 ---@field weight_decay number L2 regularization coefficient to prevent overfitting (default 0.0001)
 ---@field layer_decay_multipliers? number[] Optional per-layer decay rate multipliers
 ---@field dropout_rates? number[] Dropout rates for each hidden layer (0-1, not applied to output layer)
----@field optimizer? OptimizerType Optimizer algorithm (default "sgd")
+---@field optimizer? OptimizerType Optimizer algorithm (default "adamw")
 ---@field adam_beta1? number AdamW first moment decay (default 0.9)
 ---@field adam_beta2? number AdamW second moment decay (default 0.999)
 ---@field adam_epsilon? number AdamW numerical stability (default 1e-8)
@@ -137,6 +137,16 @@
 ---@field text_length_inv number Raw text length (used to compute inverse normalization)
 ---@field not_last_selected number Binary: 1 if NOT the most recently selected item, 0 if it is
 
+--- Normalized feature scores for item pickers (7 features, all in [0,1])
+---@class NosItemNormalizedFeatures
+---@field match number Normalized to [0,1] using sigmoid
+---@field frecency number Normalized to [0,1] using 1 - 1/(1+x)
+---@field cwd_frecency number Normalized to [0,1] using 1 - 1/(1+x)
+---@field recency number Normalized to [0,1] using linear decay (max - rank + 1) / max
+---@field cwd_recency number Normalized to [0,1] using linear decay (max - rank + 1) / max
+---@field text_length_inv number Normalized to [0,1] using 1/(1+len*0.1)
+---@field not_last_selected number Already [0,1] binary
+
 --- Session context for item pickers
 ---@class NosItemContext
 ---@field cwd string Current working directory
@@ -175,7 +185,7 @@
 ---@class NosConfig
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations for file pickers
----@field item_algorithm_config NosAlgorithmConfig? Algorithm-specific configurations for item pickers (7-feature pipeline)
+---@field item_algorithm_config NosAlgorithmConfig Algorithm-specific configurations for item pickers (7-feature pipeline)
 ---@field weights_path string Directory path to store learned weights (per-picker JSON files)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)

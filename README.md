@@ -114,6 +114,29 @@ require("neural-open").setup({
     latency_auto_clipboard = false, -- Copy timing report to clipboard
   },
 
+  -- File sources for the default file picker
+  file_sources = { "buffers", "recent", "files", "git_files" },
+
+  -- Algorithm config for item pickers (7-feature pipeline, separate from file pickers)
+  item_algorithm_config = {
+    classic = {
+      learning_rate = 0.6,
+      default_weights = {
+        match = 140, frecency = 17, cwd_frecency = 15,
+        recency = 9, cwd_recency = 8, text_length_inv = 3,
+        not_last_selected = 2,
+      },
+    },
+    nn = {
+      architecture = { 7, 16, 8, 1 },  -- 7 inputs for item features
+      optimizer = "adamw",
+      learning_rate = 0.001,
+      batch_size = 128,
+      history_size = 2000,
+      batches_per_update = 5,
+    },
+  },
+
   -- Special files that include parent directory in virtual name
   special_files = {
     ["__init__.py"] = true,
@@ -166,6 +189,36 @@ Change the scoring algorithm at runtime:
 " Switch to naive algorithm
 :NeuralOpen algorithm naive
 ```
+
+### Custom Pickers
+
+Create pickers for any string-based selection use case. Each picker trains an independent neural network.
+
+```lua
+-- Open a picker inline (registers and opens in one call)
+require("neural-open").pick("just_recipes", {
+  title = "Just Recipes",
+  finder = function()
+    return {
+      { text = "build", desc = "Build the project", value = "build" },
+      { text = "test", desc = "Run tests", value = "test" },
+    }
+  end,
+  confirm = function(picker, item)
+    picker:close()
+    vim.cmd(string.format('TermExec cmd="just %s"', item.value))
+  end,
+})
+
+-- Or register once and open later
+require("neural-open").register_picker("just_recipes", { ... })
+require("neural-open").pick("just_recipes")
+
+-- Open via command
+:NeuralOpen pick just_recipes
+```
+
+See the [`examples/`](examples/) directory for complete, copy-paste picker templates (just recipes, make targets, vim commands).
 
 ### Reset Learned Weights
 
@@ -223,7 +276,9 @@ Simple unweighted sum of all normalized features. No learning. Useful for testin
 ### Functions
 
 - `setup(opts)` - Initialize the plugin with configuration
-- `open(opts)` - Open the neural picker
+- `open(opts)` - Open the neural file picker
+- `pick(name, opts)` - Open a custom picker with neural scoring (registers inline if not previously registered)
+- `register_picker(name, config)` - Register a picker configuration for later use with `pick()`
 - `reset_weights(algorithm_name?)` - Reset learned weights to defaults (optional algorithm name)
 - `set_algorithm(name?)` - Set or display current algorithm ("classic", "naive", "nn")
 
@@ -233,7 +288,8 @@ Simple unweighted sum of all normalized features. No learning. Useful for testin
 
 ### Commands
 
-- `:NeuralOpen` - Open the neural picker
+- `:NeuralOpen` - Open the neural file picker
+- `:NeuralOpen pick <name>` - Open a registered custom picker
 - `:NeuralOpen algorithm [name]` - Show or set scoring algorithm
 - `:NeuralOpen reset [algorithm]` - Reset weights for current or specified algorithm
 

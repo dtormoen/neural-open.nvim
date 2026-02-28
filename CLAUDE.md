@@ -154,6 +154,7 @@ The project uses Busted for testing with comprehensive test coverage including:
 - Database operations and persistence
 - Mock-based unit testing for external dependencies
 - Type safety validation for the simplified `nos` field structure
+- End-to-end multi-picker pipeline validation (item/file transforms, scoring correctness, weight learning isolation, auto-migration)
 
 **Test Isolation**: Tests run in complete isolation using temporary XDG directories to protect your real Neovim environment. Always use `just test` to ensure proper isolation.
 
@@ -291,6 +292,7 @@ assert.is_not_nil(saved)
 - `tests/`: Busted test specifications
 - `benchmarks/`: Hot-path benchmark scripts (run with `just benchmark`)
 - `docs/`: Benchmark results and supplementary documentation
+- `examples/`: Real-world picker examples (just recipes, make targets, vim commands) — copy-paste templates for creating custom pickers
 
 ## Configuration
 
