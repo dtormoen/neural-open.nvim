@@ -155,6 +155,7 @@ The project uses Busted for testing with comprehensive test coverage including:
 - Mock-based unit testing for external dependencies
 - Type safety validation for the simplified `nos` field structure
 - End-to-end multi-picker pipeline validation (item/file transforms, scoring correctness, weight learning isolation, auto-migration)
+- Per-picker state isolation regression tests (NN architecture independence, classic weight independence, weight save routing per picker_name)
 
 **Test Isolation**: Tests run in complete isolation using temporary XDG directories to protect your real Neovim environment. Always use `just test` to ensure proper isolation.
 

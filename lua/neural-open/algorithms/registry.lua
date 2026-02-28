@@ -20,7 +20,8 @@ local function load_algorithm(algorithm_name)
 end
 
 --- Initialize an algorithm module with the given config.
---- Uses create_instance() when available, falls back to init() + module.
+--- Uses create_instance() for stateful algorithms (nn, classic).
+--- Stateless algorithms (naive) are returned as-is.
 ---@param algorithm Algorithm|{create_instance: fun(config: table): Algorithm} The algorithm module
 ---@param algo_config table Algorithm-specific configuration
 ---@return Algorithm The algorithm instance (may be the module itself or a new instance)
