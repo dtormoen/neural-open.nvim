@@ -1,5 +1,5 @@
 describe("classic algorithm", function()
-  local classic
+  local instance
   local mock_weights
   local helpers
 
@@ -29,14 +29,13 @@ describe("classic algorithm", function()
 
     package.loaded["neural-open.weights"] = mock_weights
     package.loaded["neural-open.algorithms.classic"] = nil
-    classic = require("neural-open.algorithms.classic")
+    local classic = require("neural-open.algorithms.classic")
 
-    -- Initialize with real config (learning_rate is already default 0.6)
+    -- Create instance with real config (learning_rate is already default 0.6)
     local config = helpers.create_algorithm_config("classic")
-    classic.init(config.algorithm_config.classic)
-
-    -- Load weights after init
-    classic.load_weights()
+    config.algorithm_config.classic.picker_name = "test"
+    instance = classic.create_instance(config.algorithm_config.classic)
+    instance.load_weights()
   end)
 
   after_each(function()
@@ -52,7 +51,7 @@ describe("classic algorithm", function()
       local input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0.2, 0, 0, 1 }
 
       -- Expected: 0.8*140 + 0.5*17 + 0.3*13 + 0.2*9 + 1*5 = 112 + 8.5 + 3.9 + 1.8 + 5 = 131.2
-      local score = classic.calculate_score(input_buf)
+      local score = instance.calculate_score(input_buf)
       assert.are.equal(131.2, score)
     end)
 
@@ -61,7 +60,7 @@ describe("classic algorithm", function()
       local input_buf = { 0.8, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 1 }
 
       -- Expected: 0.8*140 + 0.2*9 + 1*5 = 112 + 1.8 + 5 = 118.8
-      local score = classic.calculate_score(input_buf)
+      local score = instance.calculate_score(input_buf)
       assert.are.equal(118.8, score)
     end)
 
@@ -69,7 +68,7 @@ describe("classic algorithm", function()
       local input_buf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 
       -- Expected: 0
-      local score = classic.calculate_score(input_buf)
+      local score = instance.calculate_score(input_buf)
       assert.are.equal(0, score)
     end)
   end)
@@ -86,7 +85,7 @@ describe("classic algorithm", function()
       local ranked_items = { selected_item }
 
       local original_weights = vim.deepcopy(mock_weights.weights.classic)
-      classic.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
 
       -- Weights should not have changed
       assert.are.same(original_weights, mock_weights.weights.classic)
@@ -111,7 +110,7 @@ describe("classic algorithm", function()
       local ranked_items = { higher_item, selected_item }
 
       -- update_weights now saves internally
-      classic.update_weights(selected_item, ranked_items)
+      instance.update_weights(selected_item, ranked_items)
 
       -- Match weight should increase (selected had higher match score)
       assert.is_true(mock_weights.weights.classic.match > 140)
@@ -140,7 +139,7 @@ describe("classic algorithm", function()
       local ranked_items = { higher_item, selected_item }
 
       local original_weights = vim.deepcopy(mock_weights.weights.classic)
-      local simulation = classic.simulate_weight_adjustments(selected_item, ranked_items)
+      local simulation = instance.simulate_weight_adjustments(selected_item, ranked_items)
 
       -- Weights should not have changed
       assert.are.same(original_weights, mock_weights.weights.classic)
@@ -166,7 +165,7 @@ describe("classic algorithm", function()
         },
       }
 
-      local lines = classic.debug_view(item)
+      local lines = instance.debug_view(item)
 
       assert.is_table(lines)
       assert.is_true(#lines > 0)
@@ -191,7 +190,7 @@ describe("classic algorithm", function()
         },
       }
 
-      local lines = classic.debug_view(item)
+      local lines = instance.debug_view(item)
       local content = table.concat(lines, "\n")
 
       -- Verify transition appears in the raw→normalized features section
@@ -206,7 +205,7 @@ describe("classic algorithm", function()
 
   describe("get_name", function()
     it("should return algorithm name", function()
-      assert.are.equal("classic", classic.get_name())
+      assert.are.equal("classic", instance.get_name())
     end)
   end)
 end)

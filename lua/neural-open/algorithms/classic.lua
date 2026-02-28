@@ -3,74 +3,71 @@ local M = {}
 
 local scorer = require("neural-open.scorer")
 
-local config = {}
-local current_weights = nil
-local weight_buf = nil -- Positional weight array in FEATURE_NAMES order
+local states = {} -- picker_name -> state table
+
+---@class ClassicState
+---@field config NosClassicConfig
+---@field current_weights table<string, number>?
+---@field weight_buf number[]?
+
+---@return ClassicState
+local function new_state()
+  return { config = nil, current_weights = nil, weight_buf = nil }
+end
+
+---@param cs ClassicState
+---@param algorithm_config NosClassicConfig?
+local function init_state(cs, algorithm_config)
+  cs.config = vim.deepcopy(algorithm_config or {})
+end
 
 --- Get default weights for display purposes
+---@param cs ClassicState
 ---@return table?
-local function get_default_weights()
-  return require("neural-open.weights").get_default_weights("classic", config and config.picker_name)
+local function get_default_weights(cs)
+  return require("neural-open.weights").get_default_weights("classic", cs.config.picker_name)
 end
 
 --- Rebuild positional weight_buf from named weights in feature name order.
 --- Uses config.feature_names if set (for item pickers), else scorer.FEATURE_NAMES (file picker).
 --- Must only be called after current_weights has been assigned.
-local function rebuild_weight_buf()
-  local weights = current_weights --[[@as table]]
-  local feature_names = (config and config.feature_names) or scorer.FEATURE_NAMES
-  weight_buf = {}
+---@param cs ClassicState
+local function rebuild_weight_buf(cs)
+  local weights = cs.current_weights --[[@as table]]
+  local feature_names = cs.config.feature_names or scorer.FEATURE_NAMES
+  cs.weight_buf = {}
   for i, name in ipairs(feature_names) do
-    weight_buf[i] = weights[name] or 0
+    cs.weight_buf[i] = weights[name] or 0
   end
 end
 
 --- Ensure weights are loaded and available
----@return table
+---@param cs ClassicState
 ---@param force_reload boolean? Force reload weights even if already loaded
-local function ensure_weights(force_reload)
-  if not current_weights or force_reload then
-    current_weights = require("neural-open.weights").get_weights("classic", config and config.picker_name)
+---@return table
+local function ensure_weights(cs, force_reload)
+  if not cs.current_weights or force_reload then
+    cs.current_weights = require("neural-open.weights").get_weights("classic", cs.config.picker_name)
     -- Backfill any new features from defaults that are missing in saved weights
-    if config and config.default_weights then
-      for key, value in pairs(config.default_weights) do
-        if current_weights[key] == nil then
-          current_weights[key] = value
+    if cs.config.default_weights then
+      for key, value in pairs(cs.config.default_weights) do
+        if cs.current_weights[key] == nil then
+          cs.current_weights[key] = value
         end
       end
     end
-    rebuild_weight_buf()
+    rebuild_weight_buf(cs)
   end
-  return current_weights
-end
-
---- Initialize the algorithm with configuration
----@param algorithm_config NosClassicConfig
-function M.init(algorithm_config)
-  config = algorithm_config
-end
-
---- Calculate weighted score from a flat input buffer
----@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
----@return number
-function M.calculate_score(input_buf)
-  if not weight_buf then
-    ensure_weights()
-  end
-  local wb = weight_buf --[[@as number[] ]]
-  local score = 0
-  for i = 1, #input_buf do
-    score = score + input_buf[i] * wb[i]
-  end
-  return score
+  return cs.current_weights
 end
 
 --- Calculate weighted component scores from a flat input buffer
+---@param cs ClassicState
 ---@param input_buf number[] Flat array of normalized features in FEATURE_NAMES order
 ---@return table<string, number>
-local function calculate_components(input_buf)
-  local weights = ensure_weights()
-  local feature_names = (config and config.feature_names) or scorer.FEATURE_NAMES
+local function calculate_components(cs, input_buf)
+  local weights = ensure_weights(cs)
+  local feature_names = cs.config.feature_names or scorer.FEATURE_NAMES
   local components = {}
   for i, name in ipairs(feature_names) do
     if weights[name] then
@@ -81,10 +78,11 @@ local function calculate_components(input_buf)
 end
 
 --- Calculate weight adjustments based on component differences
+---@param cs ClassicState
 ---@param selected_item NeuralOpenItem
 ---@param ranked_items NeuralOpenItem[]
 ---@return table adjustments, number num_higher_items
-local function calculate_adjustments(selected_item, ranked_items)
+local function calculate_adjustments(cs, selected_item, ranked_items)
   local selected_rank = selected_item.neural_rank
 
   -- No adjustment needed if item is rank 1 or has no rank
@@ -98,7 +96,7 @@ local function calculate_adjustments(selected_item, ranked_items)
   end
 
   -- Get current weights to initialize adjustments
-  local weights = ensure_weights()
+  local weights = ensure_weights(cs)
 
   -- Initialize adjustments
   local adjustments = {}
@@ -109,7 +107,7 @@ local function calculate_adjustments(selected_item, ranked_items)
   -- Calculate components from input buffer
   local selected_components = {}
   if selected_item.nos and selected_item.nos.input_buf then
-    selected_components = calculate_components(selected_item.nos.input_buf)
+    selected_components = calculate_components(cs, selected_item.nos.input_buf)
   end
 
   -- Compare with all higher-ranked items
@@ -119,7 +117,7 @@ local function calculate_adjustments(selected_item, ranked_items)
       -- Calculate components from input buffer
       local higher_components = {}
       if higher_item.nos and higher_item.nos.input_buf then
-        higher_components = calculate_components(higher_item.nos.input_buf)
+        higher_components = calculate_components(cs, higher_item.nos.input_buf)
       end
 
       -- Check where selected item scored better
@@ -149,7 +147,7 @@ local function calculate_adjustments(selected_item, ranked_items)
   end
 
   -- Apply normalization with learning rate
-  local learning_rate = config.learning_rate or 0.6
+  local learning_rate = cs.config.learning_rate or 0.6
   for key, adj in pairs(adjustments) do
     if adj ~= 0 then
       adjustments[key] = (adj / num_higher_items) * learning_rate
@@ -160,11 +158,12 @@ local function calculate_adjustments(selected_item, ranked_items)
 end
 
 --- Apply adjustments to weights and calculate changes
+---@param cs ClassicState
 ---@param adjustments table
 ---@param apply boolean Whether to actually apply the changes
 ---@return table new_weights, table changes, boolean has_changes
-local function apply_adjustments(adjustments, apply)
-  local weights = ensure_weights()
+local function apply_adjustments(cs, adjustments, apply)
+  local weights = ensure_weights(cs)
 
   local new_weights = {}
   local changes = {}
@@ -195,12 +194,12 @@ local function apply_adjustments(adjustments, apply)
 
   if has_changes and apply then
     -- Update internal state and rebuild positional weight buffer
-    current_weights = new_weights
-    rebuild_weight_buf()
+    cs.current_weights = new_weights
+    rebuild_weight_buf(cs)
 
     -- Format changes for notification
     local formatted_changes = {}
-    local default_weights = get_default_weights() or {}
+    local default_weights = get_default_weights(cs) or {}
     for key, change in pairs(changes) do
       local default_val = default_weights[key] or 0
       formatted_changes[key] = string.format("%.2f → %.2f (default: %.2f)", change.old, change.new, default_val)
@@ -214,33 +213,19 @@ local function apply_adjustments(adjustments, apply)
   return new_weights, changes, has_changes
 end
 
---- Update weights based on user selection (with optional latency tracking)
----@param selected_item NeuralOpenItem
----@param ranked_items NeuralOpenItem[]
----@param latency_ctx? table Optional latency context (for consistency with other algorithms)
-function M.update_weights(selected_item, ranked_items, latency_ctx)
-  local adjustments, _ = calculate_adjustments(selected_item, ranked_items)
-  local new_weights, _, has_changes = apply_adjustments(adjustments, true)
-
-  -- Save updated weights if changed
-  if has_changes then
-    local weights_module = require("neural-open.weights")
-    weights_module.save_weights("classic", new_weights, latency_ctx, config and config.picker_name)
-  end
-end
-
 --- Simulate weight adjustments without applying them
+---@param cs ClassicState
 ---@param selected_item NeuralOpenItem
 ---@param ranked_items NeuralOpenItem[]
 ---@return table?
-function M.simulate_weight_adjustments(selected_item, ranked_items)
-  local adjustments, num_higher_items = calculate_adjustments(selected_item, ranked_items)
+local function simulate_weight_adjustments(cs, selected_item, ranked_items)
+  local adjustments, num_higher_items = calculate_adjustments(cs, selected_item, ranked_items)
 
   if num_higher_items == 0 then
     return nil
   end
 
-  local new_weights, changes, has_changes = apply_adjustments(adjustments, false) -- Don't apply
+  local new_weights, changes, has_changes = apply_adjustments(cs, adjustments, false) -- Don't apply
 
   if not has_changes then
     return nil
@@ -257,18 +242,19 @@ end
 local fmt = require("neural-open.debug_fmt")
 
 --- Generate debug view for classic algorithm
+---@param cs ClassicState
 ---@param item NeuralOpenItem
 ---@param all_items NeuralOpenItem[]?
 ---@return string[], table[]?
-function M.debug_view(item, all_items)
+local function debug_view_impl(cs, item, all_items)
   local lines = {}
   local hl = {}
-  local weights = ensure_weights()
+  local weights = ensure_weights(cs)
 
   fmt.add_title(lines, hl, "Classic Algorithm")
   table.insert(lines, "")
   fmt.add_label(lines, hl, "Algorithm", "Weighted sum with self-learning")
-  fmt.add_label(lines, hl, "Learning Rate", string.format("%.2f", config.learning_rate or 0.6))
+  fmt.add_label(lines, hl, "Learning Rate", string.format("%.2f", cs.config.learning_rate or 0.6))
   table.insert(lines, "")
 
   if item.nos then
@@ -279,7 +265,7 @@ function M.debug_view(item, all_items)
     table.insert(lines, "")
 
     -- Features table (raw + normalized)
-    local all_features = (config and config.feature_names) or scorer.FEATURE_NAMES
+    local all_features = cs.config.feature_names or scorer.FEATURE_NAMES
     local normalized_features = {}
     if item.nos.input_buf then
       for i, name in ipairs(all_features) do
@@ -303,7 +289,7 @@ function M.debug_view(item, all_items)
     -- Weighted components table
     local components = {}
     if item.nos.input_buf then
-      components = calculate_components(item.nos.input_buf)
+      components = calculate_components(cs, item.nos.input_buf)
     end
 
     local sorted_components = {}
@@ -320,7 +306,7 @@ function M.debug_view(item, all_items)
       local name = comp.name
       local normalized = normalized_features[name] or 0
       local weight = weights[name] or 0
-      local default_weights = get_default_weights() or {}
+      local default_weights = get_default_weights(cs) or {}
       local default_weight = default_weights[name] or 0
       table.insert(weighted_rows, {
         fmt.format_feature_name(name),
@@ -349,7 +335,7 @@ function M.debug_view(item, all_items)
       end
 
       if current_rank and current_rank > 1 then
-        local simulation = M.simulate_weight_adjustments(item, all_items)
+        local simulation = simulate_weight_adjustments(cs, item, all_items)
 
         if simulation and simulation.changes then
           fmt.add_label(
@@ -376,7 +362,7 @@ function M.debug_view(item, all_items)
               hl,
               fmt.format_feature_name(entry.key),
               string.format(
-                "%.2f -> %.2f (%s%.2f) %s",
+                "%.2f → %.2f (%s%.2f) %s",
                 change.old,
                 change.new,
                 sign,
@@ -397,15 +383,61 @@ function M.debug_view(item, all_items)
   return lines, hl
 end
 
---- Get algorithm name
----@return AlgorithmName
-function M.get_name()
-  return "classic"
+--- Create a per-picker instance of the classic algorithm
+---@param config NosClassicConfig
+---@return table instance Algorithm instance with closures over per-picker state
+function M.create_instance(config)
+  local picker_name = config.picker_name or "__default__"
+  local cs = states[picker_name]
+  if not cs then
+    cs = new_state()
+    states[picker_name] = cs
+  end
+  init_state(cs, config)
+
+  local instance = {
+    calculate_score = function(input_buf)
+      if not cs.weight_buf then
+        ensure_weights(cs)
+      end
+      local wb = cs.weight_buf --[[@as number[] ]]
+      local score = 0
+      for i = 1, #input_buf do
+        score = score + input_buf[i] * wb[i]
+      end
+      return score
+    end,
+    update_weights = function(selected_item, ranked_items, latency_ctx)
+      local adjustments, _ = calculate_adjustments(cs, selected_item, ranked_items)
+      local new_weights, _, has_changes = apply_adjustments(cs, adjustments, true)
+      if has_changes then
+        local weights_module = require("neural-open.weights")
+        weights_module.save_weights("classic", new_weights, latency_ctx, cs.config.picker_name)
+      end
+    end,
+    load_weights = function()
+      ensure_weights(cs, true)
+    end,
+    debug_view = function(item, all_items)
+      return debug_view_impl(cs, item, all_items)
+    end,
+    get_name = function()
+      return "classic"
+    end,
+    init = function() end, -- no-op, config already set
+    simulate_weight_adjustments = function(selected_item, ranked_items)
+      return simulate_weight_adjustments(cs, selected_item, ranked_items)
+    end,
+  }
+
+  return instance
 end
 
---- Load the latest weights from the weights module
-function M.load_weights()
-  ensure_weights(true) -- force_reload also rebuilds weight_buf
+---@diagnostic disable-next-line: undefined-field
+if _G._TEST then
+  function M._reset_states()
+    states = {}
+  end
 end
 
 return M

@@ -61,7 +61,8 @@ describe("transition integration", function()
     classic = require("neural-open.algorithms.classic")
 
     -- Initialize classic algorithm
-    classic.init(mock_neural_open.config.algorithm_config.classic)
+    mock_neural_open.config.algorithm_config.classic.picker_name = "test"
+    classic = classic.create_instance(mock_neural_open.config.algorithm_config.classic)
     classic.load_weights()
   end)
 

@@ -190,17 +190,19 @@ describe("matrix operations", function()
 end)
 ```
 
-**Algorithm Tests with Default Config:**
+**Algorithm Tests with Default Config (instance API):**
 ```lua
 local helpers = require("tests.helpers")
 local classic = require("neural-open.algorithms.classic")
 
-local config = helpers.get_default_config()
-classic.init(config.algorithm_config.classic)
-classic.load_weights()
+local config = helpers.create_algorithm_config("classic")
+config.algorithm_config.classic.picker_name = "test"
+local instance = classic.create_instance(config.algorithm_config.classic)
+instance.load_weights()
+-- Use instance.calculate_score(), instance.update_weights(), etc.
 ```
 
-**Algorithm Tests with Overrides (nn uses instance API):**
+**Algorithm Tests with Overrides (instance API):**
 ```lua
 local helpers = require("tests.helpers")
 local nn = require("neural-open.algorithms.nn")

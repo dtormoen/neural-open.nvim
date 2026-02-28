@@ -51,8 +51,9 @@ describe("debug module", function()
     -- Load classic algorithm with mocked weights
     local classic = require("neural-open.algorithms.classic")
     local config = helpers.get_default_config()
-    classic.init(config.algorithm_config.classic)
-    classic.load_weights()
+    config.algorithm_config.classic.picker_name = "test"
+    local classic_instance = classic.create_instance(config.algorithm_config.classic)
+    classic_instance.load_weights()
 
     -- Create a comprehensive test item with all features
     -- input_buf order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition
@@ -77,7 +78,7 @@ describe("debug module", function()
         is_alternate = true,
         recent_rank = 2,
         ctx = {
-          algorithm = classic, -- Add algorithm to context
+          algorithm = classic_instance, -- Add algorithm to context
         },
       },
     }
@@ -102,7 +103,7 @@ describe("debug module", function()
         },
         input_buf = { 0.7500, 0, 0, 0, 0, 0.5000, 1.0000, 0, 0, 0, 1 },
         ctx = {
-          algorithm = classic, -- Add algorithm to context
+          algorithm = classic_instance, -- Add algorithm to context
         },
       },
     }
@@ -141,10 +142,6 @@ describe("debug module", function()
     package.loaded["neural-open"] = {
       config = test_config,
     }
-
-    -- Initialize the classic algorithm so registry will use it
-    classic = require("neural-open.algorithms.classic")
-    classic.init(test_config.algorithm_config.classic)
 
     -- Mock recent module
     package.loaded["neural-open.recent"] = {

@@ -559,9 +559,11 @@ describe("neural-open", function()
       local ranked_high = { higher_high, selected_high }
       local ranked_low = { higher_low, selected_low }
 
-      -- Set high learning rate to force weights to bounds
-      local config = neural_open.config.algorithm_config.classic
-      config.learning_rate = 10
+      -- Create new instance with high learning rate to force weights to bounds
+      local clamp_config = vim.deepcopy(neural_open.config.algorithm_config.classic)
+      clamp_config.learning_rate = 10
+      classic_algorithm = require("neural-open.algorithms.classic").create_instance(clamp_config)
+      classic_algorithm.load_weights()
 
       -- update_weights now saves internally
       classic_algorithm.update_weights(selected_high, ranked_high)
