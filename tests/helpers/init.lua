@@ -87,6 +87,7 @@ function M.clear_plugin_modules()
     "neural-open.algorithms.nn_core",
     "neural-open.recent",
     "neural-open.transitions",
+    "neural-open.item_tracking",
   }
 
   for _, module in ipairs(modules_to_clear) do

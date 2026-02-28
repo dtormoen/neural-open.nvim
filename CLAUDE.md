@@ -24,7 +24,8 @@ Results are documented in `docs/benchmark-results.md`.
 - **`source.lua`**: Snacks picker source implementation with file discovery and async processing
 - **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`) and `input_buf_to_features()` utility shared by all algorithms
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
-- **`recent.lua`**: Persistent recency tracking with in-memory cache and debounced disk writes
+- **`recent.lua`**: File-path-based recency tracking with in-memory cache and debounced disk writes
+- **`item_tracking.lua`**: Generic frecency and recency tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Data persisted under `item_tracking` key in each picker's JSON file
 - **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
 - **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker stores weights in `<weights_dir>/<picker_name>.json`
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
@@ -115,6 +116,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with normalized absolute paths for positive_file/negative_file), ranking accuracy metrics, and format version
   - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
   - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
+  - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, and CWD-scoped recency lists. Deadline-based exponential decay (30-day half-life), debounced persistence
 - **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. If `weights_path` is configured as a `.json` file path, a deprecation warning is logged and the parent directory is used
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI

@@ -109,6 +109,21 @@
 ---@field latency_auto_clipboard boolean Copy timing report to clipboard
 ---@field snacks_scores boolean Show Snacks.nvim debug scores in picker
 
+--- Persisted item tracking storage format (stored under "item_tracking" key in picker JSON)
+---@class NosItemTrackingStore
+---@field frecency table<string, number> Global item frecency: item_id -> deadline_timestamp
+---@field cwd_frecency table<string, table<string, number>> CWD-scoped frecency: cwd -> { item_id -> deadline_timestamp }
+---@field recency_list string[] Global ordered list of recent item selections (index 1 = most recent)
+---@field cwd_recency table<string, string[]> CWD-scoped recency lists: cwd -> ordered list
+
+--- Computed tracking data returned by get_tracking_data for feature computation
+---@class NosItemTrackingData
+---@field frecency table<string, number> Global frecency scores: item_id -> computed score
+---@field cwd_frecency table<string, number> CWD-scoped frecency scores: item_id -> computed score
+---@field recency_rank table<string, number> Global recency ranks: item_id -> 1-based position
+---@field cwd_recency_rank table<string, number> CWD-scoped recency ranks: item_id -> 1-based position
+---@field last_selected string? Most recently selected item id (global)
+
 ---@class NosConfig
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations
