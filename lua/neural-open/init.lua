@@ -228,8 +228,8 @@ local function create_item_confirm_handler(picker_name, user_confirm)
           item_tracking.record_selection(picker_name, item_id, nos_ctx.cwd)
         end
 
-        -- Update weights if not already pending and not rank 1
-        if visible_rank and visible_rank > 1 and not pending_item_update then
+        -- Update weights if not already pending
+        if visible_rank and not pending_item_update then
           if nos_ctx and nos_ctx.algorithm and nos_ctx.algorithm.update_weights then
             item.neural_rank = visible_rank
             pending_item_update = true

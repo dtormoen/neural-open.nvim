@@ -40,6 +40,25 @@ end
 local scorer = require("neural-open.scorer")
 local DEFAULT_FEATURE_NAMES = scorer.FEATURE_NAMES
 
+--- Default backfill values for new features during input-size migration.
+--- Each entry is either a static number or a function(row, feature_indices) -> number.
+--- Functions receive the existing row data and a name->index map of the OLD features,
+--- allowing heuristics to look up values by name rather than hardcoded positions.
+--- Features not listed here default to 0.0.
+local MIGRATION_DEFAULTS = {
+  not_current = function(row, idx)
+    -- Heuristic: high trigram similarity + max proximity suggests the current file
+    local trigram = idx.trigram and row[idx.trigram]
+    local proximity = idx.proximity and row[idx.proximity]
+    if trigram and proximity then
+      local is_current = trigram >= 0.99 and proximity == 1.0
+      return is_current and 0.0 or 1.0
+    end
+    return 1.0 -- safe default when features unavailable (e.g., item pickers)
+  end,
+  not_last_selected = 1.0,
+}
+
 --- Get feature names for a state table (respects per-picker config override)
 ---@param st table State table
 ---@return string[]
@@ -1207,6 +1226,119 @@ local function prepare_inference_cache(st)
   }
 end
 
+--- Migrate the first layer when saved weights have fewer inputs than the current architecture.
+--- Expands weight rows with Xavier initialization and backfills training history using
+--- MIGRATION_DEFAULTS (static values or per-row heuristic functions keyed by feature name).
+---@param st table State table (must have st.weights loaded)
+---@param config table NN config with architecture
+---@param training_history table? Training history pairs to backfill
+---@return { migrated: boolean, output_size: number }
+local function migrate_input_size(st, config, training_history)
+  if not (st.weights and st.weights[1]) then
+    return { migrated = false, output_size = 0 }
+  end
+
+  local saved_input_size = #st.weights[1]
+  local expected_input_size = config.architecture[1]
+
+  if saved_input_size >= expected_input_size then
+    return { migrated = false, output_size = 0 }
+  end
+
+  local output_size = #st.weights[1][1]
+
+  -- Append new rows with Xavier-scale random values for each new input
+  for _ = saved_input_size + 1, expected_input_size do
+    local new_row = nn_core.xavier_init(1, output_size, expected_input_size)[1]
+    st.weights[1][#st.weights[1] + 1] = new_row
+  end
+
+  -- Backfill training history: expand existing pairs to match new input size
+  -- Training history stores inputs as matrices: { {v1, v2, ..., vN} }
+  -- so we must index into [1] (the inner row vector) for length checks and mutations
+  if training_history then
+    local feature_names = get_feature_names(st)
+
+    -- Build name->index map for OLD features (what the row already contains)
+    local old_feature_indices = {}
+    for i = 1, saved_input_size do
+      old_feature_indices[feature_names[i]] = i
+    end
+
+    -- Resolve static defaults once; collect functions for per-row evaluation
+    local new_col_defaults = {}
+    local new_col_fns = {}
+    for col = saved_input_size + 1, expected_input_size do
+      local default = MIGRATION_DEFAULTS[feature_names[col]]
+      if type(default) == "function" then
+        new_col_fns[col] = default
+        new_col_defaults[col] = 0.0 -- placeholder, overwritten per-row
+      else
+        new_col_defaults[col] = default or 0.0
+      end
+    end
+
+    local has_fns = next(new_col_fns) ~= nil
+
+    local function backfill_row(row)
+      for col = saved_input_size + 1, expected_input_size do
+        if has_fns and new_col_fns[col] then
+          row[col] = new_col_fns[col](row, old_feature_indices)
+        else
+          row[col] = new_col_defaults[col]
+        end
+      end
+    end
+
+    for _, pair in ipairs(training_history) do
+      local pos_row = pair.positive_input and pair.positive_input[1]
+      if pos_row and #pos_row == saved_input_size then
+        backfill_row(pos_row)
+      end
+      local neg_row = pair.negative_input and pair.negative_input[1]
+      if neg_row and #neg_row == saved_input_size then
+        backfill_row(neg_row)
+      end
+    end
+  end
+
+  vim.notify(
+    string.format(
+      "neural-open: Migrated NN input layer from %d to %d features. "
+        .. "First-layer weights expanded, optimizer moments reset.",
+      saved_input_size,
+      expected_input_size
+    ),
+    vim.log.levels.INFO
+  )
+
+  return { migrated = true, output_size = output_size }
+end
+
+--- Save the current NN state to disk.
+---@param st table State table
+---@param latency_ctx? table Optional latency context
+local function save_state(st, latency_ctx)
+  local weights_module = require("neural-open.weights")
+  weights_module.save_weights("nn", {
+    nn = {
+      version = "2.0-hinge",
+      network = {
+        weights = st.weights,
+        biases = st.biases,
+        gammas = st.gammas,
+        betas = st.betas,
+        running_means = st.running_means,
+        running_vars = st.running_vars,
+      },
+      training_history = st.training_history,
+      stats = st.stats,
+      optimizer_type = st.optimizer_type,
+      optimizer_state = st.optimizer_state,
+    },
+  }, latency_ctx, st.config and st.config.picker_name)
+end
+
 --- Ensure the network state is initialized
 ---@param st table State table
 ---@param force_reload boolean? Force reload weights even if already loaded
@@ -1234,51 +1366,7 @@ local function ensure_weights(st, force_reload)
       end
 
       -- Handle input-size migration: expand first layer if config expects more inputs
-      local input_size_migrated = false
-      local migrated_output_size = 0
-      if st.weights and st.weights[1] then
-        local saved_input_size = #st.weights[1]
-        local expected_input_size = config.architecture[1]
-        if saved_input_size ~= expected_input_size and saved_input_size < expected_input_size then
-          input_size_migrated = true
-          local output_size = #st.weights[1][1]
-          migrated_output_size = output_size
-          -- Append new rows with Xavier-scale random values for each new input
-          for _ = saved_input_size + 1, expected_input_size do
-            local new_row = nn_core.xavier_init(1, output_size, expected_input_size)[1]
-            st.weights[1][#st.weights[1] + 1] = new_row
-          end
-
-          -- Backfill training history: expand existing pairs to match new input size
-          -- Training history stores inputs as matrices: { {v1, v2, ..., vN} }
-          -- so we must index into [1] (the inner row vector) for length checks and mutations
-          if algorithm_weights.nn.training_history then
-            for _, pair in ipairs(algorithm_weights.nn.training_history) do
-              local pos_row = pair.positive_input and pair.positive_input[1]
-              if pos_row and #pos_row == saved_input_size then
-                -- Heuristic: trigram >= 0.99 AND proximity == 1.0 suggests current file
-                local is_current = pos_row[9] >= 0.99 and pos_row[6] == 1.0
-                pos_row[expected_input_size] = is_current and 0.0 or 1.0
-              end
-              local neg_row = pair.negative_input and pair.negative_input[1]
-              if neg_row and #neg_row == saved_input_size then
-                local is_current = neg_row[9] >= 0.99 and neg_row[6] == 1.0
-                neg_row[expected_input_size] = is_current and 0.0 or 1.0
-              end
-            end
-          end
-
-          vim.notify(
-            string.format(
-              "neural-open: Migrated NN input layer from %d to %d features. "
-                .. "First-layer weights expanded, optimizer moments reset.",
-              saved_input_size,
-              expected_input_size
-            ),
-            vim.log.levels.INFO
-          )
-        end
-      end
+      local migration = migrate_input_size(st, config, algorithm_weights.nn.training_history)
 
       -- Load history and stats
       st.training_history = algorithm_weights.nn.training_history or {}
@@ -1317,15 +1405,20 @@ local function ensure_weights(st, force_reload)
 
       -- Reset first-layer optimizer moments after input-size migration.
       -- This must run after optimizer state is loaded from disk.
-      if input_size_migrated and st.optimizer_state and st.optimizer_state.moments then
+      if migration.migrated and st.optimizer_state and st.optimizer_state.moments then
         local expected_input_size = config.architecture[1]
         local m = st.optimizer_state.moments
         if m.first and m.first.weights and m.first.weights[1] then
-          m.first.weights[1] = nn_core.zeros(expected_input_size, migrated_output_size)
+          m.first.weights[1] = nn_core.zeros(expected_input_size, migration.output_size)
         end
         if m.second and m.second.weights and m.second.weights[1] then
-          m.second.weights[1] = nn_core.zeros(expected_input_size, migrated_output_size)
+          m.second.weights[1] = nn_core.zeros(expected_input_size, migration.output_size)
         end
+      end
+
+      -- Persist migrated weights immediately so future loads don't re-trigger migration
+      if migration.migrated then
+        save_state(st)
       end
     end
 
@@ -1567,24 +1660,7 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
 
   -- Save weights (even if no training happened, state may have changed)
   latency.start(latency_ctx, "nn.save_weights", "async.weight_update")
-  local weights_module = require("neural-open.weights")
-  weights_module.save_weights("nn", {
-    nn = {
-      version = "2.0-hinge", -- Version field for pairwise hinge loss format
-      network = {
-        weights = st.weights,
-        biases = st.biases,
-        gammas = st.gammas,
-        betas = st.betas,
-        running_means = st.running_means,
-        running_vars = st.running_vars,
-      },
-      training_history = st.training_history,
-      stats = st.stats,
-      optimizer_type = st.optimizer_type,
-      optimizer_state = st.optimizer_state,
-    },
-  }, latency_ctx, st.config and st.config.picker_name)
+  save_state(st, latency_ctx)
   latency.finish(latency_ctx, "nn.save_weights")
 end
 

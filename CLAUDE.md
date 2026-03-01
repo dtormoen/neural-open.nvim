@@ -110,7 +110,7 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
   - Enabled by default for AdamW (10 steps)
   - Helps mitigate bias correction amplification in AdamW
 - **Inference Cache**: `prepare_inference_cache()` fuses batch norm parameters into weight matrices once per weight load, so `calculate_score(input_buf)` runs a tight loop with zero table allocations. `calculate_score(input_buf)` is the per-keystroke hot path, taking a pre-allocated flat array (`input_buf`). The cache (`st.inference_cache`) is invalidated and rebuilt whenever weights reload or training updates the network. Inside `nn.lua`, always call `prepare_inference_cache(st)` after modifying `st.weights`, `st.biases`, `st.gammas`, `st.betas`, `st.running_means`, or `st.running_vars` on a state table.
-- **Input-Size Migration**: Automatically expands the first layer when new features are added (e.g., 10 to 11 inputs), using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history with heuristic values. Users are notified of the upgrade.
+- **Input-Size Migration**: Automatically expands the first layer when new features are added, using Xavier initialization for new rows, resetting first-layer optimizer moments, and backfilling training history using a feature-name-driven defaults table (`MIGRATION_DEFAULTS` in `nn.lua`). Binary `not_*` features default to 1.0; all other new features default to 0.0. Works for any picker type (e.g., file pickers 10→11, item pickers 7→8). Users are notified of the upgrade.
 
 ### Data Persistence
 
