@@ -30,7 +30,7 @@ local trigrams = require("neural-open.trigrams")
 -- Mock the weights module before requiring nn so load_weights() uses bundled defaults
 package.loaded["neural-open.weights"] = {
   get_weights = function()
-    return {}
+    return nil
   end,
   save_weights = function() end,
 }
