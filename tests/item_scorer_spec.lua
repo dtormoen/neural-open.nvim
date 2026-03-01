@@ -96,12 +96,12 @@ describe("item_scorer module", function()
       assert.equals(0, item_scorer.normalize_item_frecency(-1))
     end)
 
-    it("returns 0.5 for score of 1", function()
-      assert.are.near(0.5, item_scorer.normalize_item_frecency(1), 1e-10)
+    it("returns 0.5 for score of 8", function()
+      assert.are.near(0.5, item_scorer.normalize_item_frecency(8), 1e-10)
     end)
 
     it("approaches 1 for large values", function()
-      assert.is_true(item_scorer.normalize_item_frecency(100) > 0.99)
+      assert.is_true(item_scorer.normalize_item_frecency(1000) > 0.99)
     end)
 
     it("gives good spread for typical item tracking scores", function()

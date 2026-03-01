@@ -37,12 +37,11 @@ function M.normalize_match_score(raw_score)
 end
 
 --- Normalize an item frecency score to [0,1].
---- Uses 1-1/(1+x) without the /8 divisor used by file frecency,
---- since item tracking scores are typically smaller (1-10 range).
+--- Uses same 1-1/(1+x/8) formula as file frecency for consistent scaling.
 ---@param raw_frecency number Raw frecency score from item_tracking (0-∞)
 ---@return number Normalized value in [0,1]
 function M.normalize_item_frecency(raw_frecency)
-  return (raw_frecency and raw_frecency > 0) and (1 - 1 / (1 + raw_frecency)) or 0
+  return (raw_frecency and raw_frecency > 0) and (1 - 1 / (1 + raw_frecency / 8)) or 0
 end
 
 --- Calculate recency score with linear decay (delegates to scorer)

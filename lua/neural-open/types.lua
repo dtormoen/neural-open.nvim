@@ -143,8 +143,8 @@
 --- Normalized feature scores for item pickers (8 features, all in [0,1])
 ---@class NosItemNormalizedFeatures
 ---@field match number Normalized to [0,1] using sigmoid
----@field frecency number Normalized to [0,1] using 1 - 1/(1+x)
----@field cwd_frecency number Normalized to [0,1] using 1 - 1/(1+x)
+---@field frecency number Normalized to [0,1] using 1 - 1/(1+x/8)
+---@field cwd_frecency number Normalized to [0,1] using 1 - 1/(1+x/8)
 ---@field recency number Normalized to [0,1] using linear decay (max - rank + 1) / max
 ---@field cwd_recency number Normalized to [0,1] using linear decay (max - rank + 1) / max
 ---@field text_length_inv number Normalized to [0,1] using 1/(1+len*0.1)

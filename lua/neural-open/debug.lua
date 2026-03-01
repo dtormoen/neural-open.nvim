@@ -299,12 +299,12 @@ local function render_item_sections(lines, hl, item)
     table.insert(lines, "")
   end
 
-  -- Global frecent items (top 10)
+  -- Global frecent items (top 10, normalized to [0,1] matching item_scorer)
   if tracking_data.frecency then
     local frecent_items = {}
     for item_id, score in pairs(tracking_data.frecency) do
       if score > 0 then
-        table.insert(frecent_items, { path = item_id, score = score })
+        table.insert(frecent_items, { path = item_id, score = 1 - 1 / (1 + score / 8) })
       end
     end
 
@@ -313,12 +313,12 @@ local function render_item_sections(lines, hl, item)
     end)
   end
 
-  -- CWD frecent items (top 10)
+  -- CWD frecent items (top 10, normalized to [0,1] matching item_scorer)
   if tracking_data.cwd_frecency then
     local cwd_frecent_items = {}
     for item_id, score in pairs(tracking_data.cwd_frecency) do
       if score > 0 then
-        table.insert(cwd_frecent_items, { path = item_id, score = score })
+        table.insert(cwd_frecent_items, { path = item_id, score = 1 - 1 / (1 + score / 8) })
       end
     end
 
