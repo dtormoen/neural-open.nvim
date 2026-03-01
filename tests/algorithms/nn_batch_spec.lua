@@ -380,11 +380,10 @@ describe("Neural Network Batch Processing", function()
 
       -- Verify weights were saved
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn)
-      assert.is_not_nil(saved_weights.nn.network)
-      assert.is_not_nil(saved_weights.nn.network.weights)
-      assert.is_not_nil(saved_weights.nn.network.gammas)
-      assert.is_not_nil(saved_weights.nn.network.betas)
+      assert.is_not_nil(saved_weights.network)
+      assert.is_not_nil(saved_weights.network.weights)
+      assert.is_not_nil(saved_weights.network.gammas)
+      assert.is_not_nil(saved_weights.network.betas)
 
       -- Load the updated weights and rebuild inference cache
       nn_instance.load_weights()

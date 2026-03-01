@@ -1321,21 +1321,19 @@ end
 local function save_state(st, latency_ctx)
   local weights_module = require("neural-open.weights")
   weights_module.save_weights("nn", {
-    nn = {
-      version = "2.0-hinge",
-      network = {
-        weights = st.weights,
-        biases = st.biases,
-        gammas = st.gammas,
-        betas = st.betas,
-        running_means = st.running_means,
-        running_vars = st.running_vars,
-      },
-      training_history = st.training_history,
-      stats = st.stats,
-      optimizer_type = st.optimizer_type,
-      optimizer_state = st.optimizer_state,
+    version = "2.0-hinge",
+    network = {
+      weights = st.weights,
+      biases = st.biases,
+      gammas = st.gammas,
+      betas = st.betas,
+      running_means = st.running_means,
+      running_vars = st.running_vars,
     },
+    training_history = st.training_history,
+    stats = st.stats,
+    optimizer_type = st.optimizer_type,
+    optimizer_state = st.optimizer_state,
   }, latency_ctx, st.config and st.config.picker_name)
 end
 
@@ -1354,31 +1352,37 @@ local function ensure_weights(st, force_reload)
     local weights_module = require("neural-open.weights")
     local algorithm_weights = weights_module.get_weights("nn", st.config and st.config.picker_name)
 
-    if algorithm_weights and algorithm_weights.nn then
-      -- Load network weights
-      if algorithm_weights.nn.network then
-        st.weights = algorithm_weights.nn.network.weights
-        st.biases = algorithm_weights.nn.network.biases
-        st.gammas = algorithm_weights.nn.network.gammas
-        st.betas = algorithm_weights.nn.network.betas
-        st.running_means = algorithm_weights.nn.network.running_means
-        st.running_vars = algorithm_weights.nn.network.running_vars
+    if algorithm_weights then
+      -- Auto-migrate from old double-nested format: { nn = { version, network, ... } }
+      -- to flat format: { version, network, ... }
+      if algorithm_weights.nn and algorithm_weights.nn.network then
+        algorithm_weights = algorithm_weights.nn
+      end
+
+      -- Load network weights (flat: algorithm_weights.network)
+      if algorithm_weights.network then
+        st.weights = algorithm_weights.network.weights
+        st.biases = algorithm_weights.network.biases
+        st.gammas = algorithm_weights.network.gammas
+        st.betas = algorithm_weights.network.betas
+        st.running_means = algorithm_weights.network.running_means
+        st.running_vars = algorithm_weights.network.running_vars
       end
 
       -- Handle input-size migration: expand first layer if config expects more inputs
-      local migration = migrate_input_size(st, config, algorithm_weights.nn.training_history)
+      local migration = migrate_input_size(st, config, algorithm_weights.training_history)
 
       -- Load history and stats
-      st.training_history = algorithm_weights.nn.training_history or {}
-      if algorithm_weights.nn.stats then
-        st.stats = vim.tbl_extend("force", st.stats, algorithm_weights.nn.stats)
+      st.training_history = algorithm_weights.training_history or {}
+      if algorithm_weights.stats then
+        st.stats = vim.tbl_extend("force", st.stats, algorithm_weights.stats)
         st.stats.batch_timings = st.stats.batch_timings or {}
         st.stats.avg_batch_timing = st.stats.avg_batch_timing or nil
         st.stats.loss_history = st.stats.loss_history or {}
       end
 
       -- Load optimizer state
-      local saved_optimizer_type = algorithm_weights.nn.optimizer_type or "sgd"
+      local saved_optimizer_type = algorithm_weights.optimizer_type or "sgd"
       local current_optimizer_type = config.optimizer or "sgd"
 
       if saved_optimizer_type ~= current_optimizer_type then
@@ -1393,7 +1397,7 @@ local function ensure_weights(st, force_reload)
         )
       else
         st.optimizer_type = saved_optimizer_type
-        st.optimizer_state = algorithm_weights.nn.optimizer_state
+        st.optimizer_state = algorithm_weights.optimizer_state
       end
 
       -- Initialize optimizer state if needed
@@ -1547,7 +1551,7 @@ end
 ---@param latency_ctx? table Optional latency context
 local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
   local latency = require("neural-open.latency")
-  ensure_weights(st)
+  ensure_weights(st, true)
 
   local config = ensure_config(st)
 

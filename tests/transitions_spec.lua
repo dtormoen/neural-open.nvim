@@ -10,12 +10,12 @@ describe("transitions module", function()
 
     -- Mock db module
     mock_db = {
-      weights_data = {},
-      get_weights = function(_picker_name, _latency_ctx)
-        return vim.deepcopy(mock_db.weights_data)
+      tracking_data = {},
+      get_tracking = function(_picker_name, _latency_ctx)
+        return vim.deepcopy(mock_db.tracking_data)
       end,
-      save_weights = function(_picker_name, data, _latency_ctx)
-        mock_db.weights_data = vim.deepcopy(data)
+      save_tracking = function(_picker_name, data, _latency_ctx)
+        mock_db.tracking_data = vim.deepcopy(data)
       end,
     }
 
@@ -44,7 +44,7 @@ describe("transitions module", function()
     it("should create frecency entry for new transition", function()
       transitions.record_transition("/path/to/a.lua", "/path/to/b.lua")
 
-      local data = mock_db.get_weights()
+      local data = mock_db.get_tracking()
       assert.is_not_nil(data.transition_frecency)
       assert.is_not_nil(data.transition_frecency["/path/to/a.lua"])
       assert.is_number(data.transition_frecency["/path/to/a.lua"]["/path/to/b.lua"])
@@ -52,11 +52,11 @@ describe("transitions module", function()
 
     it("should increase score with repeated visits", function()
       transitions.record_transition("/path/a.lua", "/path/b.lua")
-      local data1 = mock_db.get_weights()
+      local data1 = mock_db.get_tracking()
       local deadline1 = data1.transition_frecency["/path/a.lua"]["/path/b.lua"]
 
       transitions.record_transition("/path/a.lua", "/path/b.lua")
-      local data2 = mock_db.get_weights()
+      local data2 = mock_db.get_tracking()
       local deadline2 = data2.transition_frecency["/path/a.lua"]["/path/b.lua"]
 
       -- Second visit should have a later deadline (higher score)
@@ -68,39 +68,11 @@ describe("transitions module", function()
       transitions.record_transition("/path/a.lua", "/path/c.lua")
       transitions.record_transition("/path/a.lua", "/path/d.lua")
 
-      local data = mock_db.get_weights()
+      local data = mock_db.get_tracking()
       local dests = data.transition_frecency["/path/a.lua"]
       assert.is_not_nil(dests["/path/b.lua"])
       assert.is_not_nil(dests["/path/c.lua"])
       assert.is_not_nil(dests["/path/d.lua"])
-    end)
-
-    it("should preserve existing weights data", function()
-      mock_db.weights_data = {
-        classic = { match = 100 },
-        nn = { weights = { { { 1, 2, 3 } } } },
-      }
-
-      transitions.record_transition("/path/a.lua", "/path/b.lua")
-
-      local data = mock_db.get_weights()
-      assert.equals(100, data.classic.match)
-      assert.is_not_nil(data.nn.weights)
-      assert.is_not_nil(data.transition_frecency)
-    end)
-
-    it("should remove legacy transition_history on record", function()
-      mock_db.weights_data = {
-        transition_history = {
-          { from = "/path/a.lua", to = "/path/b.lua", timestamp = 123 },
-        },
-      }
-
-      transitions.record_transition("/path/x.lua", "/path/y.lua")
-
-      local data = mock_db.get_weights()
-      assert.is_nil(data.transition_history)
-      assert.is_not_nil(data.transition_frecency)
     end)
   end)
 
@@ -162,19 +134,6 @@ describe("transitions module", function()
       -- Only 2 visits from a.lua → 1-1/(1+2/4)≈0.333
       assert.is_near(0.333, scores["/path/b.lua"], 0.001)
     end)
-
-    it("should remove legacy transition_history on compute", function()
-      mock_db.weights_data = {
-        transition_history = {
-          { from = "/path/a.lua", to = "/path/b.lua", timestamp = 123 },
-        },
-      }
-
-      transitions.compute_scores_from("/path/a.lua")
-
-      local data = mock_db.get_weights()
-      assert.is_nil(data.transition_history)
-    end)
   end)
 
   describe("time decay", function()
@@ -229,7 +188,7 @@ describe("transitions module", function()
         transitions.record_transition("/path/a.lua", "/path/d" .. i .. ".lua")
       end
 
-      local data = mock_db.get_weights()
+      local data = mock_db.get_tracking()
       local dests = data.transition_frecency["/path/a.lua"]
       local count = 0
       for _ in pairs(dests) do
@@ -258,7 +217,7 @@ describe("transitions module", function()
       transitions.MAX_DESTINATIONS_PER_SOURCE = 3
       transitions.record_transition("/path/a.lua", "/path/d4.lua")
 
-      local data = mock_db.get_weights()
+      local data = mock_db.get_tracking()
       local dests = data.transition_frecency["/path/a.lua"]
 
       -- d2 (3 visits, fresh), d3 (1 visit, fresh), d4 (1 visit, fresh) should survive
@@ -280,7 +239,7 @@ describe("transitions module", function()
       transitions.record_transition("/path/s2.lua", "/path/d.lua")
       transitions.record_transition("/path/s3.lua", "/path/d.lua")
 
-      local data = mock_db.get_weights()
+      local data = mock_db.get_tracking()
       local source_count = 0
       for _ in pairs(data.transition_frecency) do
         source_count = source_count + 1
@@ -292,10 +251,10 @@ describe("transitions module", function()
   end)
 
   describe("edge cases", function()
-    it("should use atomic writes through db.save_weights", function()
+    it("should use atomic writes through db.save_tracking", function()
       local save_count = 0
-      local original_save = mock_db.save_weights
-      mock_db.save_weights = function(picker_name, data, latency_ctx)
+      local original_save = mock_db.save_tracking
+      mock_db.save_tracking = function(picker_name, data, latency_ctx)
         save_count = save_count + 1
         original_save(picker_name, data, latency_ctx)
       end
@@ -304,14 +263,14 @@ describe("transitions module", function()
       assert.equals(1, save_count)
     end)
 
-    it("should handle nil weights data gracefully", function()
-      mock_db.get_weights = function(_picker_name, _latency_ctx)
+    it("should handle nil tracking data gracefully", function()
+      mock_db.get_tracking = function(_picker_name, _latency_ctx)
         return nil
       end
 
       transitions.record_transition("/path/a.lua", "/path/b.lua")
 
-      local data = mock_db.weights_data
+      local data = mock_db.tracking_data
       assert.is_not_nil(data.transition_frecency)
     end)
   end)

@@ -112,7 +112,7 @@
 ---@field latency_auto_clipboard boolean Copy timing report to clipboard
 ---@field snacks_scores boolean Show Snacks.nvim debug scores in picker
 
---- Persisted item tracking storage format (stored under "item_tracking" key in picker JSON)
+--- Persisted item tracking storage format (stored under "item_tracking" key in picker tracking file)
 ---@class NosItemTrackingStore
 ---@field frecency table<string, number> Global item frecency: item_id -> deadline_timestamp
 ---@field cwd_frecency table<string, table<string, number>> CWD-scoped frecency: cwd -> { item_id -> deadline_timestamp }

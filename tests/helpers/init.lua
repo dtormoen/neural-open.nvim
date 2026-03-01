@@ -86,6 +86,7 @@ function M.clear_plugin_modules()
     "neural-open.algorithms.nn",
     "neural-open.algorithms.nn_core",
     "neural-open.recent",
+    "neural-open.frecency",
     "neural-open.transitions",
     "neural-open.item_tracking",
     "neural-open.item_scorer",

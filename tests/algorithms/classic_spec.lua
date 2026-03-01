@@ -208,4 +208,48 @@ describe("classic algorithm", function()
       assert.are.equal("classic", instance.get_name())
     end)
   end)
+
+  describe("force reload", function()
+    it("update_weights re-reads weights from disk before applying adjustments", function()
+      -- Start with default weights loaded
+      local default_config = helpers.get_default_config()
+      local original_match = default_config.algorithm_config.classic.default_weights.match
+
+      -- Externally modify the weights (simulating another instance writing to disk)
+      local modified_match = original_match + 20
+      mock_weights.weights.classic.match = modified_match
+
+      -- Flat order: match, virtual_name, frecency, open, alt, proximity, project, recency, trigram, transition, not_current
+      local selected_item = {
+        neural_rank = 2,
+        nos = {
+          input_buf = { 0.8, 0, 0.5, 0, 0, 0.3, 0, 0.2, 0, 0, 1 },
+        },
+      }
+
+      local higher_item = {
+        neural_rank = 1,
+        nos = {
+          input_buf = { 0.7, 0, 0.6, 0, 0, 0.3, 0, 0.1, 0, 0, 1 },
+        },
+      }
+
+      local ranked_items = { higher_item, selected_item }
+
+      -- update_weights should force-reload and pick up the modified match weight
+      instance.update_weights(selected_item, ranked_items)
+
+      -- The saved match weight should be based on the modified value (not the original)
+      -- Since selected had higher match, match weight should have increased from modified_match
+      assert.is_true(
+        mock_weights.weights.classic.match > modified_match,
+        string.format(
+          "Match weight (%f) should have been adjusted from externally modified value (%f), not original (%f)",
+          mock_weights.weights.classic.match,
+          modified_match,
+          original_match
+        )
+      )
+    end)
+  end)
 end)

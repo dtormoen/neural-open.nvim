@@ -27,11 +27,18 @@ describe("transition integration", function()
     -- Setup mocks
     mock_db = {
       weights_data = {},
+      tracking_data = {},
       get_weights = function(_picker_name, _latency_ctx)
         return vim.deepcopy(mock_db.weights_data)
       end,
       save_weights = function(_picker_name, data, _latency_ctx)
         mock_db.weights_data = vim.deepcopy(data)
+      end,
+      get_tracking = function(_picker_name, _latency_ctx)
+        return vim.deepcopy(mock_db.tracking_data)
+      end,
+      save_tracking = function(_picker_name, data, _latency_ctx)
+        mock_db.tracking_data = vim.deepcopy(data)
       end,
     }
 
@@ -238,8 +245,8 @@ describe("transition integration", function()
       assert.is_near(0.2, scores[same_file], 0.001)
     end)
 
-    it("should handle missing weights data", function()
-      mock_db.get_weights = function(_picker_name, _latency_ctx)
+    it("should handle missing tracking data", function()
+      mock_db.get_tracking = function(_picker_name, _latency_ctx)
         return nil
       end
 

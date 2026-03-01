@@ -2,23 +2,15 @@ describe("item_tracking module", function()
   local helpers = require("tests.helpers")
   local item_tracking
   local mock_db
-  local original_new_timer
   local original_os_time
   local mock_time
+
+  -- Per-picker tracking store (simulates per-picker file isolation)
+  local tracking_store
 
   before_each(function()
     helpers.setup()
     helpers.clear_plugin_modules()
-
-    -- Mock vim.loop.new_timer
-    original_new_timer = vim.loop.new_timer
-    vim.loop.new_timer = function()
-      return {
-        start = function() end,
-        stop = function() end,
-        close = function() end,
-      }
-    end
 
     -- Control time for deterministic tests
     mock_time = 1000000000
@@ -27,14 +19,16 @@ describe("item_tracking module", function()
       return mock_time
     end
 
-    -- Mock db module
+    -- Per-picker storage
+    tracking_store = {}
+
+    -- Mock db module with per-picker storage
     mock_db = {
-      weights_data = {},
-      get_weights = function(_picker_name, _latency_ctx)
-        return vim.deepcopy(mock_db.weights_data)
+      get_tracking = function(picker_name, _latency_ctx)
+        return vim.deepcopy(tracking_store[picker_name] or {})
       end,
-      save_weights = function(_picker_name, data, _latency_ctx)
-        mock_db.weights_data = vim.deepcopy(data)
+      save_tracking = function(picker_name, data, _latency_ctx)
+        tracking_store[picker_name] = vim.deepcopy(data)
       end,
     }
 
@@ -50,50 +44,23 @@ describe("item_tracking module", function()
     if item_tracking then
       item_tracking.reset()
     end
-    vim.loop.new_timer = original_new_timer
     os.time = original_os_time -- luacheck: ignore 122
     helpers.clear_plugin_modules()
     package.loaded["neural-open.db"] = nil
   end)
 
-  describe("init", function()
-    it("loads empty tracking data when no persisted data exists", function()
-      item_tracking.init("test_picker")
-
-      local data = item_tracking.get_tracking_data("test_picker", "/cwd")
-      assert.same({}, data.frecency)
-      assert.same({}, data.cwd_frecency)
-      assert.same({}, data.recency_rank)
-      assert.same({}, data.cwd_recency_rank)
-      assert.is_nil(data.last_selected)
-    end)
-
-    it("loads persisted tracking data from disk", function()
-      mock_db.weights_data = {
-        item_tracking = {
-          frecency = { build = mock_time + 1000 },
-          cwd_frecency = { ["/proj"] = { build = mock_time + 1000 } },
-          recency_list = { "build", "test" },
-          cwd_recency = { ["/proj"] = { "build" } },
-        },
-      }
-
-      item_tracking.init("test_picker")
-
-      local data = item_tracking.get_tracking_data("test_picker", "/proj")
-      assert.is_true(data.frecency["build"] > 0)
-      assert.is_true(data.cwd_frecency["build"] > 0)
-      assert.equals(1, data.recency_rank["build"])
-      assert.equals(2, data.recency_rank["test"])
-      assert.equals(1, data.cwd_recency_rank["build"])
-      assert.equals("build", data.last_selected)
-    end)
-  end)
-
   describe("record_selection", function()
-    it("updates all four tracking stores", function()
+    it("updates all tracking stores and writes to disk immediately", function()
       item_tracking.record_selection("test_picker", "build", "/proj")
 
+      -- Verify data was written to disk
+      local stored = tracking_store["test_picker"]
+      assert.is_not_nil(stored)
+      assert.is_not_nil(stored.item_tracking)
+      assert.is_not_nil(stored.item_tracking.frecency["build"])
+      assert.same({ "build" }, stored.item_tracking.recency_list)
+
+      -- Verify via get_tracking_data
       local data = item_tracking.get_tracking_data("test_picker", "/proj")
       assert.is_true(data.frecency["build"] > 0)
       assert.is_true(data.cwd_frecency["build"] > 0)
@@ -151,6 +118,55 @@ describe("item_tracking module", function()
       assert.equals(5, data.recency_rank["item3"])
       assert.is_nil(data.recency_rank["item2"])
       assert.is_nil(data.recency_rank["item1"])
+    end)
+  end)
+
+  describe("get_tracking_data", function()
+    it("returns empty data when no persisted data exists", function()
+      local data = item_tracking.get_tracking_data("test_picker", "/cwd")
+      assert.same({}, data.frecency)
+      assert.same({}, data.cwd_frecency)
+      assert.same({}, data.recency_rank)
+      assert.same({}, data.cwd_recency_rank)
+      assert.is_nil(data.last_selected)
+    end)
+
+    it("reads persisted tracking data from disk", function()
+      tracking_store["test_picker"] = {
+        item_tracking = {
+          frecency = { build = mock_time + 1000 },
+          cwd_frecency = { ["/proj"] = { build = mock_time + 1000 } },
+          recency_list = { "build", "test" },
+          cwd_recency = { ["/proj"] = { "build" } },
+        },
+      }
+
+      local data = item_tracking.get_tracking_data("test_picker", "/proj")
+      assert.is_true(data.frecency["build"] > 0)
+      assert.is_true(data.cwd_frecency["build"] > 0)
+      assert.equals(1, data.recency_rank["build"])
+      assert.equals(2, data.recency_rank["test"])
+      assert.equals(1, data.cwd_recency_rank["build"])
+      assert.equals("build", data.last_selected)
+    end)
+
+    it("accepts optional store parameter to avoid double-read", function()
+      local read_count = 0
+      local orig_get = mock_db.get_tracking
+      mock_db.get_tracking = function(...)
+        read_count = read_count + 1
+        return orig_get(...)
+      end
+
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      read_count = 0
+
+      -- Pass store directly
+      local store = (mock_db.get_tracking("test_picker") or {}).item_tracking or {}
+      read_count = 0
+
+      item_tracking.get_tracking_data("test_picker", "/proj", store)
+      assert.equals(0, read_count)
     end)
   end)
 
@@ -253,73 +269,10 @@ describe("item_tracking module", function()
     end)
   end)
 
-  describe("flush", function()
-    it("persists tracking data to the picker's weight file", function()
+  describe("persistence", function()
+    it("data survives module reload", function()
       item_tracking.record_selection("test_picker", "build", "/proj")
       item_tracking.record_selection("test_picker", "test", "/proj")
-
-      item_tracking.flush("test_picker")
-
-      local data = mock_db.weights_data
-      assert.is_not_nil(data.item_tracking)
-      assert.is_not_nil(data.item_tracking.frecency["build"])
-      assert.is_not_nil(data.item_tracking.frecency["test"])
-      assert.same({ "test", "build" }, data.item_tracking.recency_list)
-    end)
-
-    it("is a no-op when no changes have been made", function()
-      local save_count = 0
-      local original_save = mock_db.save_weights
-      mock_db.save_weights = function(picker_name, data, latency_ctx)
-        save_count = save_count + 1
-        original_save(picker_name, data, latency_ctx)
-      end
-
-      item_tracking.init("test_picker")
-      item_tracking.flush("test_picker")
-
-      assert.equals(0, save_count)
-    end)
-
-    it("resets dirty flag so subsequent flush is a no-op", function()
-      local save_count = 0
-      local original_save = mock_db.save_weights
-      mock_db.save_weights = function(picker_name, data, latency_ctx)
-        save_count = save_count + 1
-        original_save(picker_name, data, latency_ctx)
-      end
-
-      item_tracking.record_selection("test_picker", "build", "/proj")
-      item_tracking.flush("test_picker")
-      assert.equals(1, save_count)
-
-      item_tracking.flush("test_picker")
-      assert.equals(1, save_count)
-    end)
-
-    it("preserves existing weight data in the picker file", function()
-      mock_db.weights_data = {
-        nn = { weights = { { { 1, 2 } } } },
-        classic = { match = 100 },
-      }
-
-      -- Re-load to pick up existing data
-      package.loaded["neural-open.item_tracking"] = nil
-      item_tracking = require("neural-open.item_tracking")
-
-      item_tracking.record_selection("test_picker", "build", "/proj")
-      item_tracking.flush("test_picker")
-
-      local data = mock_db.weights_data
-      assert.equals(100, data.classic.match)
-      assert.is_not_nil(data.nn.weights)
-      assert.is_not_nil(data.item_tracking)
-    end)
-
-    it("persisted data can be loaded after module reload", function()
-      item_tracking.record_selection("test_picker", "build", "/proj")
-      item_tracking.record_selection("test_picker", "test", "/proj")
-      item_tracking.flush("test_picker")
 
       -- Reload module
       item_tracking.reset()
@@ -331,11 +284,6 @@ describe("item_tracking module", function()
       assert.equals(2, data.recency_rank["build"])
       assert.is_true(data.frecency["build"] > 0)
       assert.is_true(data.frecency["test"] > 0)
-    end)
-
-    it("is a no-op for unknown picker name", function()
-      -- Should not error
-      item_tracking.flush("nonexistent")
     end)
   end)
 
@@ -354,21 +302,36 @@ describe("item_tracking module", function()
       assert.is_nil(data_b.frecency["build"])
     end)
 
-    it("flushes pickers independently", function()
-      local save_picker_names = {}
-      mock_db.save_weights = function(picker_name, data, _latency_ctx)
-        save_picker_names[#save_picker_names + 1] = picker_name
-      end
-
+    it("writes to separate per-picker tracking files", function()
       item_tracking.record_selection("picker_a", "build", "/proj")
       item_tracking.record_selection("picker_b", "test", "/proj")
 
-      item_tracking.flush("picker_a")
-      item_tracking.flush("picker_b")
+      -- Each picker has its own entry in tracking_store
+      assert.is_not_nil(tracking_store["picker_a"])
+      assert.is_not_nil(tracking_store["picker_b"])
+      assert.is_not_nil(tracking_store["picker_a"].item_tracking.frecency["build"])
+      assert.is_not_nil(tracking_store["picker_b"].item_tracking.frecency["test"])
+    end)
+  end)
 
-      assert.equals(2, #save_picker_names)
-      assert.equals("picker_a", save_picker_names[1])
-      assert.equals("picker_b", save_picker_names[2])
+  describe("multi-instance safety", function()
+    it("preserves external modifications between operations", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+
+      -- Simulate another instance writing to the same file
+      local external_data = vim.deepcopy(tracking_store["test_picker"])
+      external_data.item_tracking.frecency["external_item"] = mock_time + 5000
+      table.insert(external_data.item_tracking.recency_list, "external_item")
+      tracking_store["test_picker"] = external_data
+
+      -- Record another selection - should read from disk first
+      item_tracking.record_selection("test_picker", "test", "/proj")
+
+      -- Verify external data was preserved
+      local data = item_tracking.get_tracking_data("test_picker", "/proj")
+      assert.is_true(data.frecency["external_item"] > 0)
+      assert.is_true(data.frecency["build"] > 0)
+      assert.is_true(data.frecency["test"] > 0)
     end)
   end)
 
@@ -495,10 +458,9 @@ describe("item_tracking module", function()
       assert.same({}, scores)
     end)
 
-    it("persists transitions through flush/reload", function()
+    it("persists transitions through module reload", function()
       item_tracking.record_selection("test_picker", "build", "/proj")
       item_tracking.record_selection("test_picker", "test", "/proj")
-      item_tracking.flush("test_picker")
 
       -- Reload module
       item_tracking.reset()
@@ -577,15 +539,11 @@ describe("item_tracking module", function()
   end)
 
   describe("reset", function()
-    it("clears all cached data", function()
-      item_tracking.record_selection("test_picker", "build", "/proj")
-
-      item_tracking.reset()
-
-      -- After reset, data should be loaded fresh from disk (which is empty since we didn't flush)
-      local data = item_tracking.get_tracking_data("test_picker", "/proj")
-      assert.same({}, data.frecency)
-      assert.same({}, data.recency_rank)
+    it("is a no-op (stateless module)", function()
+      -- Should not error
+      assert.has_no.errors(function()
+        item_tracking.reset()
+      end)
     end)
   end)
 end)

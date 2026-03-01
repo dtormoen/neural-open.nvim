@@ -2,6 +2,7 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("neural-open.debug")
 local fmt = require("neural-open.debug_fmt")
+local frecency_mod = require("neural-open.frecency")
 
 --- Apply collected highlights as extmarks to the preview buffer
 ---@param buf number Buffer handle
@@ -138,18 +139,16 @@ local function render_file_sections(lines, hl, item, ctx_data)
 
   -- Transitions (All Files)
   local db = require("neural-open.db")
-  local all_weights = db.get_weights("files") or {}
-  local transition_frecency = all_weights.transition_frecency
+  local tracking = db.get_tracking("files") or {}
+  local transition_frecency = tracking.transition_frecency
   if transition_frecency then
     local now = os.time()
-    local half_life = 30 * 24 * 3600
-    local lambda = math.log(2) / half_life
 
     local all_pairs = {}
     for source, destinations in pairs(transition_frecency) do
       for dest, deadline in pairs(destinations) do
-        local raw_score = math.exp(lambda * (deadline - now))
-        local normalized = 1 - 1 / (1 + raw_score / 4)
+        local raw_score = frecency_mod.deadline_to_score(deadline, now)
+        local normalized = frecency_mod.normalize_transition(raw_score, 4)
         table.insert(all_pairs, { source = source, dest = dest, score = normalized })
       end
     end
@@ -166,15 +165,15 @@ local function render_file_sections(lines, hl, item, ctx_data)
   end
 
   -- Frecent files (from Snacks frecency database, normalized to 0-1)
-  local frecency_ok, frecency_mod = pcall(require, "snacks.picker.core.frecency")
+  local frecency_ok, snacks_frecency = pcall(require, "snacks.picker.core.frecency")
   if frecency_ok then
-    local inst_ok, frecency_inst = pcall(frecency_mod.new)
+    local inst_ok, frecency_inst = pcall(snacks_frecency.new)
     if inst_ok and frecency_inst and frecency_inst.cache then
       local frecent_files = {}
       for path, deadline in pairs(frecency_inst.cache) do
         local raw = frecency_inst:to_score(deadline)
         if raw > 0 then
-          table.insert(frecent_files, { path = path, score = 1 - 1 / (1 + raw / 8) })
+          table.insert(frecent_files, { path = path, score = frecency_mod.normalize_transition(raw, 8) })
         end
       end
 
@@ -185,8 +184,8 @@ local function render_file_sections(lines, hl, item, ctx_data)
   end
 
   -- Recent files list
-  local recent_module = require("neural-open.recent")
-  local recent_list = recent_module.get_recency_list()
+  local file_tracking = db.get_tracking("files") or {}
+  local recent_list = file_tracking.recency_list or {}
 
   local recent_items = {}
   for _, path in ipairs(recent_list) do
@@ -304,7 +303,7 @@ local function render_item_sections(lines, hl, item)
     local frecent_items = {}
     for item_id, score in pairs(tracking_data.frecency) do
       if score > 0 then
-        table.insert(frecent_items, { path = item_id, score = 1 - 1 / (1 + score / 8) })
+        table.insert(frecent_items, { path = item_id, score = frecency_mod.normalize_transition(score, 8) })
       end
     end
 
@@ -318,7 +317,7 @@ local function render_item_sections(lines, hl, item)
     local cwd_frecent_items = {}
     for item_id, score in pairs(tracking_data.cwd_frecency) do
       if score > 0 then
-        table.insert(cwd_frecent_items, { path = item_id, score = 1 - 1 / (1 + score / 8) })
+        table.insert(cwd_frecent_items, { path = item_id, score = frecency_mod.normalize_transition(score, 8) })
       end
     end
 
@@ -382,19 +381,18 @@ local function render_item_sections(lines, hl, item)
   -- Transitions (All Items)
   local picker_name = ctx_data and ctx_data.picker_name
   if picker_name then
-    local item_tracking = require("neural-open.item_tracking")
-    local transition_frecency = item_tracking.get_transition_frecency(picker_name)
+    local item_db = require("neural-open.db")
+    local item_store = (item_db.get_tracking(picker_name) or {}).item_tracking or {}
+    local transition_frecency = item_store.transition_frecency
 
     if transition_frecency and next(transition_frecency) then
       local now = os.time()
-      local half_life = 30 * 24 * 3600
-      local lambda = math.log(2) / half_life
 
       local all_pairs = {}
       for source, destinations in pairs(transition_frecency) do
         for dest, deadline in pairs(destinations) do
-          local raw_score = math.exp(lambda * (deadline - now))
-          local normalized = 1 - 1 / (1 + raw_score / 4)
+          local raw_score = frecency_mod.deadline_to_score(deadline, now)
+          local normalized = frecency_mod.normalize_transition(raw_score, 4)
           table.insert(all_pairs, { source = source, dest = dest, score = normalized })
         end
       end

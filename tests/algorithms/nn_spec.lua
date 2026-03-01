@@ -165,16 +165,15 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn)
-      assert.is_not_nil(saved_weights.nn.network)
-      assert.is_not_nil(saved_weights.nn.network.weights)
-      assert.is_not_nil(saved_weights.nn.network.biases)
-      assert.is_not_nil(saved_weights.nn.training_history)
-      assert.is_not_nil(saved_weights.nn.stats)
+      assert.is_not_nil(saved_weights.network)
+      assert.is_not_nil(saved_weights.network.weights)
+      assert.is_not_nil(saved_weights.network.biases)
+      assert.is_not_nil(saved_weights.training_history)
+      assert.is_not_nil(saved_weights.stats)
 
       -- Check that samples were processed
-      assert.is_true(saved_weights.nn.stats.samples_processed > 0)
-      assert.is_true(saved_weights.nn.stats.batches_trained > 0)
+      assert.is_true(saved_weights.stats.samples_processed > 0)
+      assert.is_true(saved_weights.stats.batches_trained > 0)
     end)
 
     it("tracks batch training timing statistics", function()
@@ -238,24 +237,24 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn.stats)
+      assert.is_not_nil(saved_weights.stats)
 
       -- Check that timing stats were captured
-      assert.is_not_nil(saved_weights.nn.stats.batch_timings)
-      assert.is_true(#saved_weights.nn.stats.batch_timings > 0)
+      assert.is_not_nil(saved_weights.stats.batch_timings)
+      assert.is_true(#saved_weights.stats.batch_timings > 0)
 
       -- Check that average timing was calculated
-      assert.is_not_nil(saved_weights.nn.stats.avg_batch_timing)
-      assert.is_not_nil(saved_weights.nn.stats.avg_batch_timing.forward_ms)
-      assert.is_not_nil(saved_weights.nn.stats.avg_batch_timing.backward_ms)
-      assert.is_not_nil(saved_weights.nn.stats.avg_batch_timing.update_ms)
-      assert.is_not_nil(saved_weights.nn.stats.avg_batch_timing.total_ms)
+      assert.is_not_nil(saved_weights.stats.avg_batch_timing)
+      assert.is_not_nil(saved_weights.stats.avg_batch_timing.forward_ms)
+      assert.is_not_nil(saved_weights.stats.avg_batch_timing.backward_ms)
+      assert.is_not_nil(saved_weights.stats.avg_batch_timing.update_ms)
+      assert.is_not_nil(saved_weights.stats.avg_batch_timing.total_ms)
 
       -- Verify timing values are reasonable (should be > 0)
-      assert.is_true(saved_weights.nn.stats.avg_batch_timing.forward_ms > 0)
-      assert.is_true(saved_weights.nn.stats.avg_batch_timing.backward_ms > 0)
-      assert.is_true(saved_weights.nn.stats.avg_batch_timing.update_ms > 0)
-      assert.is_true(saved_weights.nn.stats.avg_batch_timing.total_ms > 0)
+      assert.is_true(saved_weights.stats.avg_batch_timing.forward_ms > 0)
+      assert.is_true(saved_weights.stats.avg_batch_timing.backward_ms > 0)
+      assert.is_true(saved_weights.stats.avg_batch_timing.update_ms > 0)
+      assert.is_true(saved_weights.stats.avg_batch_timing.total_ms > 0)
     end)
 
     it("builds training history over multiple selections", function()
@@ -295,7 +294,7 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      local history_size_1 = #saved_weights.nn.training_history
+      local history_size_1 = #saved_weights.training_history
       assert.is_true(history_size_1 > 0, "Should have pairs after first selection")
 
       -- Second selection - weights will be loaded automatically
@@ -331,7 +330,7 @@ describe("Neural Network Algorithm", function()
 
       saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      local history_size_2 = #saved_weights.nn.training_history
+      local history_size_2 = #saved_weights.training_history
       assert.is_true(history_size_2 > history_size_1)
     end)
 
@@ -371,7 +370,7 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_true(#saved_weights.nn.training_history <= 3)
+      assert.is_true(#saved_weights.training_history <= 3)
     end)
 
     it("maintains circular buffer of last 10 batch timings", function()
@@ -437,15 +436,15 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn.stats)
-      assert.is_not_nil(saved_weights.nn.stats.batch_timings)
+      assert.is_not_nil(saved_weights.stats)
+      assert.is_not_nil(saved_weights.stats.batch_timings)
 
       -- Should have at most 10 timings despite processing 15 batches
-      assert.is_true(#saved_weights.nn.stats.batch_timings <= 10)
+      assert.is_true(#saved_weights.stats.batch_timings <= 10)
 
       -- The average should be computed from available timings
-      assert.is_not_nil(saved_weights.nn.stats.avg_batch_timing)
-      assert.is_true(saved_weights.nn.stats.avg_batch_timing.total_ms > 0)
+      assert.is_not_nil(saved_weights.stats.avg_batch_timing)
+      assert.is_true(saved_weights.stats.avg_batch_timing.total_ms > 0)
     end)
 
     it("collects enhanced negative samples for training", function()
@@ -552,11 +551,11 @@ describe("Neural Network Algorithm", function()
 
       assert.equals(1, save_call_count, "save_weights should have been called once")
       assert.is_not_nil(saved_weights, "Should have saved weights")
-      assert.is_not_nil(saved_weights.nn, "Should have nn field in saved weights")
-      assert.is_not_nil(saved_weights.nn.training_history, "Should have training_history field")
+      assert.is_not_nil(saved_weights.network, "Should have network field in saved weights")
+      assert.is_not_nil(saved_weights.training_history, "Should have training_history field")
 
       -- Use the actual training history from saved_weights (now contains pairs)
-      local captured_pairs = saved_weights.nn.training_history
+      local captured_pairs = saved_weights.training_history
       assert.is_not_nil(captured_pairs)
       assert.is_true(#captured_pairs > 0, "Should have captured some pairs")
 
@@ -666,7 +665,7 @@ describe("Neural Network Algorithm", function()
       instance.update_weights(item1, { item1, item2 })
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      local pairs_case1 = saved_weights.nn.training_history
+      local pairs_case1 = saved_weights.training_history
 
       -- Should create 1 pair: best.lua (positive) vs second.lua (negative, item below)
       local pair_count = 0
@@ -681,7 +680,7 @@ describe("Neural Network Algorithm", function()
       instance.update_weights(item2, { item1, item2 })
       saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      local pairs_case2 = saved_weights.nn.training_history
+      local pairs_case2 = saved_weights.training_history
 
       -- Should create 1 pair: second.lua (positive) vs best.lua (negative, item above)
       pair_count = 0
@@ -694,15 +693,12 @@ describe("Neural Network Algorithm", function()
 
       -- Test case 3: Only one item in the list
       -- Capture history size before this update
-      local history_before_case3 = saved_weights
-          and saved_weights.nn
-          and saved_weights.nn.training_history
-          and #saved_weights.nn.training_history
+      local history_before_case3 = saved_weights and saved_weights.training_history and #saved_weights.training_history
         or 0
 
       instance.update_weights(item1, { item1 })
       assert.is_not_nil(saved_weights)
-      local pairs_case3 = saved_weights.nn.training_history
+      local pairs_case3 = saved_weights.training_history
 
       -- Should not add any new pairs (no negatives to pair with)
       assert.equals(history_before_case3, #pairs_case3, "Should not add new pairs when only one item in list")
@@ -878,7 +874,7 @@ describe("Neural Network Algorithm", function()
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
 
-      local initial_batches = saved_weights.nn.stats.batches_trained
+      local initial_batches = saved_weights.stats.batches_trained
 
       -- Second update should use multiple batches if history is available
       instance.update_weights(selected_item, ranked_items)
@@ -886,11 +882,11 @@ describe("Neural Network Algorithm", function()
       assert.is_not_nil(saved_weights)
 
       -- Should have trained more batches
-      assert.is_true(saved_weights.nn.stats.batches_trained > initial_batches)
+      assert.is_true(saved_weights.stats.batches_trained > initial_batches)
 
       -- Check that samples per batch is being tracked
-      assert.is_number(saved_weights.nn.stats.samples_per_batch)
-      assert.is_true(saved_weights.nn.stats.samples_per_batch > 0)
+      assert.is_number(saved_weights.stats.samples_per_batch)
+      assert.is_true(saved_weights.stats.samples_per_batch > 0)
     end)
 
     it("handles insufficient samples for full batches", function()
@@ -950,8 +946,8 @@ describe("Neural Network Algorithm", function()
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
       -- Should train with 6 pairs (above 50% threshold)
-      assert.is_true(saved_weights.nn.stats.batches_trained > 0)
-      assert.is_true(saved_weights.nn.stats.last_loss >= 0)
+      assert.is_true(saved_weights.stats.batches_trained > 0)
+      assert.is_true(saved_weights.stats.last_loss >= 0)
     end)
 
     it("skips training when batch size is below 50% threshold", function()
@@ -1015,7 +1011,7 @@ describe("Neural Network Algorithm", function()
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
       -- Should NOT train with only 3 pairs (below 50% threshold)
-      assert.equals(0, saved_weights.nn.stats.batches_trained)
+      assert.equals(0, saved_weights.stats.batches_trained)
     end)
 
     it("tracks loss history per-batch not per-update", function()
@@ -1094,10 +1090,10 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn.stats)
-      assert.is_not_nil(saved_weights.nn.stats.loss_history)
+      assert.is_not_nil(saved_weights.stats)
+      assert.is_not_nil(saved_weights.stats.loss_history)
 
-      local initial_history_size = #saved_weights.nn.stats.loss_history
+      local initial_history_size = #saved_weights.stats.loss_history
       -- Should have trained at least 1 batch (may be 2 if enough pairs)
       assert.is_true(initial_history_size >= 1, "Should have at least 1 loss entry after first update")
 
@@ -1105,14 +1101,14 @@ describe("Neural Network Algorithm", function()
       instance.update_weights(item1, { item2, item3, item4, item1 })
 
       saved_weights = weights_mock.get_saved()
-      assert.is_not_nil(saved_weights.nn.stats.loss_history)
-      local after_second_update = #saved_weights.nn.stats.loss_history
+      assert.is_not_nil(saved_weights.stats.loss_history)
+      local after_second_update = #saved_weights.stats.loss_history
       -- With existing history, second update should add 2 batches
       assert.equals(initial_history_size + 2, after_second_update, "Should add 2 loss entries on second update")
 
       -- Verify that batches_trained matches loss_history length
       assert.equals(
-        saved_weights.nn.stats.batches_trained,
+        saved_weights.stats.batches_trained,
         after_second_update,
         "batches_trained should match loss_history length"
       )
@@ -1212,8 +1208,7 @@ describe("Neural Network Algorithm", function()
 
       -- Verify state was saved
       assert.is_not_nil(saved_state)
-      assert.is_not_nil(saved_state.nn)
-      assert.is_not_nil(saved_state.nn.network)
+      assert.is_not_nil(saved_state.network)
 
       -- Calculate score with trained state
       local score1 = instance.calculate_score(item.nos.input_buf)
@@ -1265,10 +1260,10 @@ describe("Neural Network Algorithm", function()
         end,
         save_weights = function(algo_name, weights)
           saved_weights = weights
-          if not initial_weights and weights.nn and weights.nn.stats and weights.nn.stats.weight_norms then
+          if not initial_weights and weights.network and weights.stats and weights.stats.weight_norms then
             -- Capture initial weight norms after first save
             initial_weights = {}
-            for i, norm in ipairs(weights.nn.stats.weight_norms) do
+            for i, norm in ipairs(weights.stats.weight_norms) do
               initial_weights[i] = norm
             end
           end
@@ -1306,13 +1301,13 @@ describe("Neural Network Algorithm", function()
 
       -- Check that weight norms decreased
       assert.is_not_nil(weights_after_training)
-      assert.is_not_nil(weights_after_training.nn.stats.weight_norms)
+      assert.is_not_nil(weights_after_training.stats.weight_norms)
 
       -- At least some layers should show reduced weight norms
       local any_decreased = false
-      for i = 1, #weights_after_training.nn.stats.weight_norms do
+      for i = 1, #weights_after_training.stats.weight_norms do
         if initial_weights[i] and initial_weights[i] > 0 then
-          if weights_after_training.nn.stats.weight_norms[i] < initial_weights[i] then
+          if weights_after_training.stats.weight_norms[i] < initial_weights[i] then
             any_decreased = true
             break
           end
@@ -1422,7 +1417,7 @@ describe("Neural Network Algorithm", function()
       -- Configuration should be preserved
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn)
+      assert.is_not_nil(saved_weights.network)
       -- Test passes if no errors occur during training with per-layer multipliers
     end)
 
@@ -1445,8 +1440,8 @@ describe("Neural Network Algorithm", function()
           return {}
         end,
         save_weights = function(algo_name, weights)
-          if weights.nn and weights.nn.stats and weights.nn.stats.last_loss then
-            table.insert(losses, weights.nn.stats.last_loss)
+          if weights.network and weights.stats and weights.stats.last_loss then
+            table.insert(losses, weights.stats.last_loss)
           end
         end,
       }
@@ -1867,14 +1862,14 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn)
-      assert.equals("adamw", saved_weights.nn.optimizer_type)
-      assert.is_not_nil(saved_weights.nn.optimizer_state)
-      assert.is_not_nil(saved_weights.nn.optimizer_state.timestep)
-      assert.is_true(saved_weights.nn.optimizer_state.timestep > 0)
-      assert.is_not_nil(saved_weights.nn.optimizer_state.moments)
-      assert.is_not_nil(saved_weights.nn.optimizer_state.moments.first)
-      assert.is_not_nil(saved_weights.nn.optimizer_state.moments.second)
+      assert.is_not_nil(saved_weights.network)
+      assert.equals("adamw", saved_weights.optimizer_type)
+      assert.is_not_nil(saved_weights.optimizer_state)
+      assert.is_not_nil(saved_weights.optimizer_state.timestep)
+      assert.is_true(saved_weights.optimizer_state.timestep > 0)
+      assert.is_not_nil(saved_weights.optimizer_state.moments)
+      assert.is_not_nil(saved_weights.optimizer_state.moments.first)
+      assert.is_not_nil(saved_weights.optimizer_state.moments.second)
     end)
 
     it("migrates legacy weight files to SGD optimizer", function()
@@ -2023,16 +2018,16 @@ describe("Neural Network Algorithm", function()
       instance.update_weights(item1, { item2, item1 })
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.equals(1, saved_weights.nn.optimizer_state.timestep)
+      assert.equals(1, saved_weights.optimizer_state.timestep)
 
       -- Second update - timestep should increase
       instance.update_weights(item1, { item2, item1 })
       saved_weights = weights_mock.get_saved()
-      assert.is_true(saved_weights.nn.optimizer_state.timestep > 1)
+      assert.is_true(saved_weights.optimizer_state.timestep > 1)
 
       -- Check that moments are being accumulated
-      local first_moments = saved_weights.nn.optimizer_state.moments.first
-      local second_moments = saved_weights.nn.optimizer_state.moments.second
+      local first_moments = saved_weights.optimizer_state.moments.first
+      local second_moments = saved_weights.optimizer_state.moments.second
       assert.is_not_nil(first_moments.weights[1])
       assert.is_not_nil(second_moments.weights[1])
     end)
@@ -2139,7 +2134,7 @@ describe("Neural Network Algorithm", function()
         sgd_instance.update_weights(item_pos, { item_neg, item_pos })
       end
 
-      local sgd_loss = saved_sgd.nn.stats.last_loss
+      local sgd_loss = saved_sgd.stats.last_loss
 
       -- Test AdamW
       package.loaded["neural-open.algorithms.nn"] = nil
@@ -2172,7 +2167,7 @@ describe("Neural Network Algorithm", function()
         adamw_instance.update_weights(item_pos, { item_neg, item_pos })
       end
 
-      local adamw_loss = saved_adamw.nn.stats.last_loss
+      local adamw_loss = saved_adamw.stats.last_loss
 
       -- Both should produce valid losses
       assert.is_number(sgd_loss)
@@ -2255,7 +2250,7 @@ describe("Neural Network Algorithm", function()
       nn = require("neural-open.algorithms.nn")
 
       local saved_weights = weights_mock.get_saved()
-      saved_weights.nn.optimizer_type = "sgd" -- Simulate old weight file
+      saved_weights.optimizer_type = "sgd" -- Simulate old weight file
 
       local config_switch = helpers.create_algorithm_config(
         "nn",
@@ -2526,11 +2521,11 @@ describe("Neural Network Algorithm", function()
 
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn)
-      assert.is_not_nil(saved_weights.nn.training_history)
+      assert.is_not_nil(saved_weights.network)
+      assert.is_not_nil(saved_weights.training_history)
 
       -- The network should have learned despite match/virtual_name being dropped out
-      assert.is_true(saved_weights.nn.stats.samples_processed > 0)
+      assert.is_true(saved_weights.stats.samples_processed > 0)
     end)
 
     it("does not apply match_dropout during inference", function()
@@ -2629,7 +2624,7 @@ describe("Neural Network Algorithm", function()
       -- Check that training occurred
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
-      assert.is_true(saved_weights.nn.stats.batches_trained > 0)
+      assert.is_true(saved_weights.stats.batches_trained > 0)
     end)
 
     it("handles match_dropout = 0 (disabled)", function()
@@ -2834,9 +2829,8 @@ describe("Neural Network Algorithm", function()
 
       -- Verify weights were updated
       assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.nn)
-      assert.is_not_nil(saved_weights.nn.network)
-      assert.is_not_nil(saved_weights.nn.network.weights)
+      assert.is_not_nil(saved_weights.network)
+      assert.is_not_nil(saved_weights.network.weights)
     end)
   end)
 
@@ -2962,6 +2956,166 @@ describe("Neural Network Algorithm", function()
       )
 
       _G._TEST = nil
+    end)
+  end)
+
+  describe("Flat Weight Format", function()
+    it("saves weights in flat format without double-nesting", function()
+      local helpers = require("tests.helpers")
+      local weights_mock = helpers.create_weights_mock()
+      package.loaded["neural-open.weights"] = weights_mock.mock
+
+      local item = create_mock_item("test.lua", {
+        match = 0.8,
+        virtual_name = 0.5,
+        frecency = 0.3,
+        open = 1.0,
+        alt = 0.0,
+        proximity = 0.6,
+        project = 1.0,
+        recency = 0.4,
+        trigram = 0.7,
+        transition = 0.0,
+      })
+
+      instance.update_weights(item, { item })
+
+      local saved = weights_mock.get_saved()
+      assert.is_not_nil(saved)
+
+      -- Flat format: top-level keys are version, network, training_history, stats, etc.
+      assert.is_not_nil(saved.version)
+      assert.equals("2.0-hinge", saved.version)
+      assert.is_not_nil(saved.network)
+      assert.is_not_nil(saved.network.weights)
+      assert.is_not_nil(saved.network.biases)
+      assert.is_not_nil(saved.training_history)
+      assert.is_not_nil(saved.stats)
+
+      -- Must NOT have a nested nn key (old double-nested format)
+      assert.is_nil(saved.nn, "Should not have double-nested nn key in flat format")
+    end)
+
+    it("auto-migrates old double-nested format on load", function()
+      package.loaded["neural-open.algorithms.nn"] = nil
+      nn = require("neural-open.algorithms.nn")
+
+      -- Simulate old double-nested format: { nn = { version, network, ... } }
+      local old_format = {
+        nn = {
+          version = "2.0-hinge",
+          network = {
+            weights = {},
+            biases = {},
+          },
+          training_history = {
+            { positive_input = { 0.5 }, negative_input = { 0.3 }, positive_file = "a.lua", negative_file = "b.lua" },
+          },
+          stats = { samples_processed = 42, batches_trained = 7 },
+          optimizer_type = "sgd",
+          optimizer_state = { timestep = 10 },
+        },
+      }
+
+      package.loaded["neural-open.weights"] = {
+        get_weights = function()
+          return old_format
+        end,
+        save_weights = function() end,
+      }
+
+      local helpers = require("tests.helpers")
+      local config = helpers.create_algorithm_config("nn", STANDARD_TEST_CONFIG)
+      config.algorithm_config.nn.picker_name = "test"
+      instance = nn.create_instance(config.algorithm_config.nn)
+
+      -- Should load without error - migration unwraps the nn wrapper
+      local input_buf = { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 1.0 }
+      local score = instance.calculate_score(input_buf)
+      assert.is_number(score)
+    end)
+  end)
+
+  describe("Force Reload", function()
+    it("update_weights force-reloads training history from disk", function()
+      -- Use a shared variable to simulate external modification
+      local disk_data = nil
+
+      package.loaded["neural-open.weights"] = {
+        get_weights = function()
+          return disk_data or {}
+        end,
+        save_weights = function(algo_name, weights)
+          disk_data = weights
+        end,
+      }
+
+      local item1 = create_mock_item("file1.lua", {
+        match = 0.8,
+        virtual_name = 0.5,
+        frecency = 0.3,
+        open = 1.0,
+        alt = 0.0,
+        proximity = 0.6,
+        project = 1.0,
+        recency = 0.4,
+        trigram = 0.7,
+        transition = 0.0,
+      })
+
+      local item2 = create_mock_item("file2.lua", {
+        match = 0.3,
+        virtual_name = 0.2,
+        frecency = 0.1,
+        open = 0.0,
+        alt = 0.0,
+        proximity = 0.4,
+        project = 1.0,
+        recency = 0.9,
+        trigram = 0.2,
+        transition = 0.0,
+      })
+
+      -- First update: creates training history
+      instance.update_weights(item1, { item2, item1 })
+      assert.is_not_nil(disk_data)
+
+      -- Externally inject additional training pairs into disk_data
+      -- (simulating another instance writing to disk)
+      -- positive_input/negative_input use nn_core matrix format: { {v1, v2, ...} }
+      table.insert(disk_data.training_history, {
+        positive_input = { { 0.9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 } },
+        negative_input = { { 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0 } },
+        positive_file = "external.lua",
+        negative_file = "other.lua",
+      })
+      local history_with_external = #disk_data.training_history
+
+      -- Second update: should force-reload and pick up the external pair
+      instance.update_weights(item1, { item2, item1 })
+      assert.is_not_nil(disk_data)
+
+      -- The history should contain external pair plus new pairs from this update
+      -- Since force-reload picks up all disk data, total should be more than
+      -- just the original history + new pairs (it includes the external pair)
+      assert.is_true(
+        #disk_data.training_history >= history_with_external,
+        string.format(
+          "Training history (%d) should include externally added pairs (%d)",
+          #disk_data.training_history,
+          history_with_external
+        )
+      )
+
+      -- Verify the external pair is present in the history
+      local found_external = false
+      for _, pair in ipairs(disk_data.training_history) do
+        if pair.positive_file == "external.lua" then
+          found_external = true
+          break
+        end
+      end
+      assert.is_true(found_external, "Should preserve externally added training pair after force-reload")
     end)
   end)
 end)

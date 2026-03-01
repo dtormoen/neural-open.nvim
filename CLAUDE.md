@@ -24,12 +24,13 @@ Results are documented in `docs/benchmark-results.md`.
 - **`source.lua`**: Snacks picker source implementation with file discovery and async processing
 - **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`), `input_buf_to_features()` for file picker feature conversion, and `get_item_identity(item)` shared by all algorithms for unified file/item identity
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
-- **`recent.lua`**: File-path-based recency tracking with in-memory cache and debounced disk writes
-- **`item_tracking.lua`**: Generic frecency, recency, and transition tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Includes item-to-item transition frecency (CWD-scoped source tracking, pruned destinations/sources). Data persisted under `item_tracking` key in each picker's JSON file
+- **`recent.lua`**: File-path-based recency tracking with pending touches and debounced persistence. BufEnter events add paths to an in-memory `pending_touches` list (no disk I/O); a 5s debounce timer or VimLeavePre merges pending touches with the on-disk list and writes back
+- **`item_tracking.lua`**: Generic frecency, recency, and transition tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Includes item-to-item transition frecency (CWD-scoped source tracking). Data persisted under `item_tracking` key in each picker's tracking file (`<picker_name>.tracking.json`). Stateless module: every operation reads from disk, modifies, and writes back immediately (no module-level cache or debounce). Public functions accept an optional pre-loaded `store` parameter to avoid redundant disk reads
+- **`frecency.lua`**: Shared deadline-based frecency math. Pure functions with no I/O or mutable state: `deadline_to_score`/`score_to_deadline` conversion, `bump` for increment-and-store, `normalize_transition` for [0,1] mapping, and `prune_map`/`prune_nested` for in-place size-limiting of frecency tables. Used by `transitions.lua`, `item_tracking.lua`, and `debug.lua`
 - **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
 - **`item_scorer.lua`**: 8-feature scoring pipeline for non-file item pickers. Owns `ITEM_FEATURE_NAMES` (canonical feature ordering: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected, transition), normalization functions, and allocation-free `on_match_handler`. Parallel to `scorer.lua`
 - **`item_source.lua`**: Context capture and per-item transform for non-file item pickers. Loads item tracking data, initializes algorithm via `registry.get_algorithm_for_picker`, computes static features. Parallel to `source.lua`
-- **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker stores weights in `<weights_dir>/<picker_name>.json`
+- **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker uses two files: `<weights_dir>/<picker_name>.json` (model weights) and `<weights_dir>/<picker_name>.tracking.json` (tracking data: recency list, transition frecency, item tracking). Auto-migrates legacy single-file layout on first `get_tracking()` call
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
 
 ### Data Structure
@@ -75,8 +76,10 @@ When users select files that weren't ranked #1, the system:
 3. Persists learned weights asynchronously to prevent UI blocking
 4. Uses atomic file writes (temp file + rename) for data integrity
 
+No-op when the selected item is already rank #1 (nothing to adjust).
+
 #### Neural Network Algorithm
-Uses a neural network with pairwise hinge loss to learn file ranking patterns:
+Trains on every selection, including rank #1. Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 - **Architecture**: Multi-layer perceptron with batch normalization and dropout
   - **Activation**: Leaky ReLU (α=0.01) for all hidden layers to prevent dying neurons and improve gradient flow
 - **Training**: Pairwise ranking with hinge loss (directly optimizes relative ordering)
@@ -114,13 +117,15 @@ Uses a neural network with pairwise hinge loss to learn file ranking patterns:
 
 ### Data Persistence
 
-- **Weights directory**: Per-picker JSON files in the configured `weights_path` directory (default `~/.local/share/nvim/neural-open/`). The file picker stores data in `files.json`; future pickers get their own files (e.g., `just_recipes.json`)
-  - Classic algorithm: Feature weights
-  - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with `normalized_path` for file pickers or `item_id` for item pickers as positive_file/negative_file), ranking accuracy metrics, and format version
-  - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
-  - Recency list: Ordered array of recently accessed file paths (default 100 entries), updated on BufEnter with debounced persistence
-  - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, CWD-scoped recency lists, and item-to-item transition frecency. Deadline-based exponential decay (30-day half-life), debounced persistence
-- **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. If `weights_path` is configured as a `.json` file path, a deprecation warning is logged and the parent directory is used
+- **Weights directory**: Per-picker data in the configured `weights_path` directory (default `~/.local/share/nvim/neural-open/`). Each picker uses two files:
+  - `<picker_name>.json` — model weights only (e.g., `files.json`, `just_recipes.json`):
+    - Classic algorithm: Feature weights
+    - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with `normalized_path` for file pickers or `item_id` for item pickers as positive_file/negative_file), ranking accuracy metrics, and format version
+  - `<picker_name>.tracking.json` — feature tracking data (e.g., `files.tracking.json`):
+    - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
+    - Recency list: Ordered array of recently accessed file paths (default 100 entries). BufEnter adds paths to an in-memory `pending_touches` list; a 5s debounce timer or VimLeavePre merges with the on-disk list and writes back
+    - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, CWD-scoped recency lists, and item-to-item transition frecency. Deadline-based exponential decay (30-day half-life). Written immediately to disk on each selection (stateless read-modify-write)
+- **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. If `weights_path` is configured as a `.json` file path, a deprecation warning is logged and the parent directory is used. On first `get_tracking()` call, if `<picker>.tracking.json` does not exist, tracking keys (`recency_list`, `transition_frecency`, `item_tracking`) are extracted from `<picker>.json` into the new tracking file and removed from the weight file. Legacy `transition_history` key is also cleaned up during this migration
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI
 - **Format Versioning**: Neural network weights include version field (v2.0-hinge for pairwise format)
@@ -140,7 +145,7 @@ The plugin exposes a generic `pick()` API for creating arbitrary item pickers wi
 
 - **`M.register_picker(name, config)`**: Stores a picker config in the registry for later use. `config.type` defaults to `"item"`.
 - **`M.pick(name, opts)`**: Opens a picker. Registers inline if not previously registered; merges `opts` over existing registration. Builds and registers a Snacks source (`neural_open_<name>`), then opens it.
-  - `type = "item"` (default): Uses 8-feature item scoring pipeline (`item_source.lua` + `item_scorer.lua`). Confirm handler records selection via `item_tracking` and triggers weight learning when rank > 1.
+  - `type = "item"` (default): Uses 8-feature item scoring pipeline (`item_source.lua` + `item_scorer.lua`). Confirm handler records selection via `item_tracking` and triggers weight learning (NN trains on every selection; classic only trains when rank > 1).
   - `type = "file"`: Uses 11-feature file scoring pipeline (`source.lua` + `scorer.lua`) with per-picker weight isolation. Custom finder replaces the default multi-finder.
 - **`M.open()`**: Unchanged — opens the default file picker.
 - **`:NeuralOpen pick <name>`**: Opens a registered picker by name.

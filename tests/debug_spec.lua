@@ -143,17 +143,21 @@ describe("debug module", function()
       config = test_config,
     }
 
-    -- Mock recent module
-    package.loaded["neural-open.recent"] = {
-      get_recency_list = function()
-        return { "/test/recent1.lua", "/test/recent2.lua" }
+    -- Mock db module for debug reads
+    package.loaded["neural-open.db"] = {
+      get_tracking = function(picker_name)
+        if picker_name == "files" then
+          return {
+            recency_list = { "/test/recent1.lua", "/test/recent2.lua" },
+          }
+        end
+        return {}
       end,
-      get_recency_map = function()
-        return {
-          ["/test/recent1.lua"] = { recent_rank = 1 },
-          ["/test/recent2.lua"] = { recent_rank = 2 },
-        }
+      get_weights = function()
+        return {}
       end,
+      save_tracking = function() end,
+      save_weights = function() end,
     }
   end)
 
@@ -608,21 +612,31 @@ describe("debug module", function()
         ["just lint"] = 0.20,
       }
 
-      -- Mock item_tracking module for get_transition_frecency
+      -- Mock db module to return item tracking data with transitions
       local mock_time = os.time()
       local half_life = 30 * 24 * 3600
       local lambda = math.log(2) / half_life
       -- Deadline that gives a score of ~1: deadline = now + ln(1)/lambda = now
       local deadline_for_score_1 = mock_time + math.log(1) / lambda
 
-      package.loaded["neural-open.item_tracking"] = {
-        init = function() end,
-        reset = function() end,
-        get_transition_frecency = function()
-          return {
-            ["just build-all"] = { ["just test"] = deadline_for_score_1 },
-          }
+      package.loaded["neural-open.db"] = {
+        get_tracking = function(picker_name)
+          if picker_name == "test_items" then
+            return {
+              item_tracking = {
+                transition_frecency = {
+                  ["just build-all"] = { ["just test"] = deadline_for_score_1 },
+                },
+              },
+            }
+          end
+          return {}
         end,
+        get_weights = function()
+          return {}
+        end,
+        save_tracking = function() end,
+        save_weights = function() end,
       }
 
       item_ctx.item = item_picker_item
@@ -643,9 +657,6 @@ describe("debug module", function()
 
       assert.is_true(found_from_last, "Should show Transitions (From Last Selected) section")
       assert.is_true(found_all_items, "Should show Transitions (All Items) section")
-
-      -- Clean up
-      package.loaded["neural-open.item_tracking"] = nil
     end)
 
     it("shows user preview content when user_preview captures sync output", function()

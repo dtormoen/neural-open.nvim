@@ -1,26 +1,24 @@
---- Recency tracking module with in-memory cache and debounced persistence
---- Maintains an ordered list of recently accessed files, persisted to the weights file.
---- BufEnter events update the in-memory list; disk writes are debounced to avoid
---- excessive I/O since the weights file may contain large NN state.
+--- Recency tracking module with pending touches and debounced persistence.
+--- Maintains a pending list of recently accessed files in memory. On flush or
+--- get_recency_map, merges pending touches with the on-disk recency list.
+--- BufEnter events update only the in-memory pending list; disk writes are
+--- debounced to avoid excessive I/O.
 local M = {}
 
 local path_mod = require("neural-open.path")
 
---- In-memory ordered array of normalized paths (index 1 = most recent)
+--- Pending touches: ordered list of normalized paths (index 1 = most recent).
+--- Only contains files touched since last flush; merged with disk on read/flush.
 ---@type string[]
-local recency_list = {}
+local pending_touches = {}
 
---- Whether the recency list has been loaded from disk
----@type boolean
-local loaded = false
+--- Dedup set for pending_touches: path -> true
+---@type table<string, boolean>
+local pending_set = {}
 
 --- Debounce timer handle for deferred persistence
 ---@type uv.uv_timer_t?
 local save_timer = nil
-
---- Whether the in-memory list has unsaved changes
----@type boolean
-local dirty = false
 
 --- Get the maximum recency list size from config
 ---@return number
@@ -86,54 +84,73 @@ local function seed_from_vim_sources()
   return result
 end
 
---- Load the recency list from disk if not already loaded.
---- Falls back to seeding from vim sources when no persisted list exists.
-local function ensure_loaded()
-  if loaded then
-    return
-  end
-  loaded = true
+--- Merge pending touches with the on-disk recency list.
+--- Returns the merged list and the tracking table without modifying pending state.
+---@param limit? number Maximum entries in result (defaults to recency_list_size)
+---@return string[] merged Merged ordered list (most recent first)
+---@return table tracking The tracking table read from disk (reusable by caller)
+local function merge_with_disk(limit)
+  limit = limit or get_max_size()
 
+  -- Read on-disk recency list
   local db = require("neural-open.db")
-  local all_weights = db.get_weights("files") or {}
-  local persisted = all_weights.recency_list
+  local tracking = db.get_tracking("files") or {}
+  local disk_list = tracking.recency_list
 
-  if persisted and type(persisted) == "table" and #persisted > 0 then
-    recency_list = persisted
-  else
-    recency_list = seed_from_vim_sources()
-    -- Do NOT set dirty; fallback data should not be persisted immediately.
-    -- Real BufEnter events will push entries to the top, and the debounced
-    -- save (or VimLeavePre flush) will eventually write a blended list.
+  -- Seed from vim sources if disk is empty
+  if not disk_list or type(disk_list) ~= "table" or #disk_list == 0 then
+    disk_list = seed_from_vim_sources()
   end
+
+  -- Build merged list: pending_touches first, then disk entries skipping dupes
+  local merged = {}
+  local seen = {}
+
+  -- Add all pending touches (most recent first)
+  for _, path in ipairs(pending_touches) do
+    if #merged >= limit then
+      break
+    end
+    if not seen[path] then
+      table.insert(merged, path)
+      seen[path] = true
+    end
+  end
+
+  -- Append disk entries, skipping those already in pending_set
+  for _, path in ipairs(disk_list) do
+    if #merged >= limit then
+      break
+    end
+    if not seen[path] then
+      table.insert(merged, path)
+      seen[path] = true
+    end
+  end
+
+  return merged, tracking
 end
 
---- Record that a buffer was focused, moving it to the top of the recency list.
+--- Record that a buffer was focused, adding it to the pending touches list.
 --- Schedules a debounced flush to persist the change after 5 seconds of inactivity.
+--- No disk I/O is performed by this function.
 ---@param path string File path of the focused buffer
 function M.record_buffer_focus(path)
-  ensure_loaded()
-
   local normalized = path_mod.normalize(path)
 
-  -- Remove existing entry if present
-  for i = #recency_list, 1, -1 do
-    if recency_list[i] == normalized then
-      table.remove(recency_list, i)
-      break
+  -- If already in pending_set, remove from current position
+  if pending_set[normalized] then
+    for i = #pending_touches, 1, -1 do
+      if pending_touches[i] == normalized then
+        table.remove(pending_touches, i)
+        break
+      end
     end
   end
 
   -- Insert at the front (most recent)
-  table.insert(recency_list, 1, normalized)
-
-  -- Trim to max size
-  local max_size = get_max_size()
-  while #recency_list > max_size do
-    recency_list[#recency_list] = nil
-  end
-
-  dirty = true
+  table.insert(pending_touches, 1, normalized)
+  pending_set[normalized] = true
 
   -- Schedule debounced save (reuse timer to avoid handle leaks)
   if save_timer then
@@ -153,36 +170,26 @@ function M.record_buffer_focus(path)
   )
 end
 
---- Build a recency map from the in-memory list for use by the scoring pipeline.
+--- Build a recency map by merging pending touches with the on-disk list.
 --- Returns a table mapping normalized paths to their recency metadata.
+--- Read-only: does NOT clear pending_touches.
 ---@param limit? number Maximum number of entries to include (defaults to recency_list_size)
 ---@return table<string, {recent_rank: number}> Map of path to recency info
 function M.get_recency_map(limit)
-  ensure_loaded()
-
-  limit = limit or get_max_size()
-  local count = math.min(limit, #recency_list)
+  local merged = merge_with_disk(limit)
   local map = {}
 
-  for i = 1, count do
-    map[recency_list[i]] = { recent_rank = i }
+  for i, path in ipairs(merged) do
+    map[path] = { recent_rank = i }
   end
 
   return map
 end
 
---- Return the raw ordered recency list array.
---- Index 1 is the most recently accessed file.
----@return string[] Ordered array of normalized file paths
-function M.get_recency_list()
-  ensure_loaded()
-  return recency_list
-end
-
---- Immediately persist the in-memory recency list to the weights file.
---- Cancels any pending debounce timer. No-op if there are no unsaved changes.
+--- Immediately persist pending touches by merging with disk and writing back.
+--- Cancels any pending debounce timer. No-op if there are no pending touches.
 function M.flush()
-  if not dirty or not loaded then
+  if #pending_touches == 0 then
     return
   end
 
@@ -191,12 +198,15 @@ function M.flush()
     save_timer:stop()
   end
 
-  local db = require("neural-open.db")
-  local all_weights = db.get_weights("files") or {}
-  all_weights.recency_list = recency_list
-  db.save_weights("files", all_weights)
+  local merged, tracking = merge_with_disk()
+  tracking.recency_list = merged
 
-  dirty = false
+  local db = require("neural-open.db")
+  db.save_tracking("files", tracking)
+
+  -- Clear pending state
+  pending_touches = {}
+  pending_set = {}
 end
 
 return M

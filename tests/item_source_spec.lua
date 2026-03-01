@@ -4,9 +4,11 @@ describe("item_source module", function()
   local item_source
   local item_scorer
   local mock_db
-  local original_new_timer
   local original_os_time
   local mock_time
+
+  -- Per-picker tracking store
+  local tracking_store
 
   before_each(function()
     helpers.setup()
@@ -18,17 +20,10 @@ describe("item_source module", function()
       return mock_time
     end
 
-    -- Mock vim.loop.new_timer for item_tracking
-    original_new_timer = vim.loop.new_timer
-    vim.loop.new_timer = function()
-      return {
-        start = function() end,
-        stop = function() end,
-        close = function() end,
-      }
-    end
+    -- Per-picker storage
+    tracking_store = {}
 
-    -- Mock db module
+    -- Mock db module with per-picker tracking storage
     mock_db = {
       weights_data = {},
       get_weights = function(_picker_name, _latency_ctx)
@@ -36,6 +31,12 @@ describe("item_source module", function()
       end,
       save_weights = function(_picker_name, data, _latency_ctx)
         mock_db.weights_data = vim.deepcopy(data)
+      end,
+      get_tracking = function(picker_name, _latency_ctx)
+        return vim.deepcopy(tracking_store[picker_name] or {})
+      end,
+      save_tracking = function(picker_name, data, _latency_ctx)
+        tracking_store[picker_name] = vim.deepcopy(data)
       end,
     }
     package.loaded["neural-open.db"] = mock_db
@@ -61,7 +62,6 @@ describe("item_source module", function()
 
   after_each(function()
     os.time = original_os_time -- luacheck: ignore 122
-    vim.loop.new_timer = original_new_timer
     helpers.clear_plugin_modules()
     package.loaded["neural-open.db"] = nil
     package.loaded["neural-open.weights"] = nil

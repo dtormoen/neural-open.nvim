@@ -11,10 +11,11 @@ local M = {}
 function M.capture_context(picker_name, ctx, config)
   local cwd = vim.fn.getcwd()
 
-  -- Load tracking data for this picker
+  -- Single disk read for tracking data
+  local db = require("neural-open.db")
   local item_tracking = require("neural-open.item_tracking")
-  item_tracking.init(picker_name)
-  local tracking_data = item_tracking.get_tracking_data(picker_name, cwd)
+  local store = (db.get_tracking(picker_name) or {}).item_tracking or {}
+  local tracking_data = item_tracking.get_tracking_data(picker_name, cwd, store)
 
   -- Setup the algorithm for this session with item-specific feature names
   local registry = require("neural-open.algorithms.registry")
@@ -30,7 +31,7 @@ function M.capture_context(picker_name, ctx, config)
   -- Compute transition scores from the last CWD-selected item
   local transition_scores = nil
   if tracking_data.last_cwd_selected then
-    transition_scores = item_tracking.compute_transition_scores(picker_name, tracking_data.last_cwd_selected)
+    transition_scores = item_tracking.compute_transition_scores(picker_name, tracking_data.last_cwd_selected, store)
   end
 
   -- Store all context in a single field

@@ -410,6 +410,7 @@ function M.create_instance(config)
       return score
     end,
     update_weights = function(selected_item, ranked_items, latency_ctx)
+      ensure_weights(cs, true)
       local adjustments, _ = calculate_adjustments(cs, selected_item, ranked_items)
       local new_weights, _, has_changes = apply_adjustments(cs, adjustments, true)
       if has_changes then

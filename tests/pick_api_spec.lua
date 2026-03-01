@@ -3,7 +3,6 @@ local helpers = require("tests.helpers")
 describe("public picker API", function()
   local neural_open
   local mock_db
-  local original_new_timer
   local original_os_time
   local mock_time
 
@@ -17,24 +16,21 @@ describe("public picker API", function()
       return mock_time
     end
 
-    -- Mock vim.loop.new_timer for item_tracking
-    original_new_timer = vim.loop.new_timer
-    vim.loop.new_timer = function()
-      return {
-        start = function() end,
-        stop = function() end,
-        close = function() end,
-      }
-    end
-
     -- Mock db module
     mock_db = {
       weights_data = {},
+      tracking_data = {},
       get_weights = function(_picker_name, _latency_ctx)
         return vim.deepcopy(mock_db.weights_data)
       end,
       save_weights = function(_picker_name, data, _latency_ctx)
         mock_db.weights_data = vim.deepcopy(data)
+      end,
+      get_tracking = function(_picker_name, _latency_ctx)
+        return vim.deepcopy(mock_db.tracking_data)
+      end,
+      save_tracking = function(_picker_name, data, _latency_ctx)
+        mock_db.tracking_data = vim.deepcopy(data)
       end,
     }
     package.loaded["neural-open.db"] = mock_db
@@ -57,7 +53,6 @@ describe("public picker API", function()
 
   after_each(function()
     os.time = original_os_time -- luacheck: ignore 122
-    vim.loop.new_timer = original_new_timer
     helpers.clear_plugin_modules()
     package.loaded["neural-open.db"] = nil
     package.loaded["neural-open.weights"] = nil

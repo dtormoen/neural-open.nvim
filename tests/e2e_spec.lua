@@ -5,12 +5,12 @@ local helpers = require("tests.helpers")
 describe("end-to-end multi-picker", function()
   local neural_open
   local mock_db
-  local original_new_timer
   local original_os_time
   local mock_time
 
   -- Per-picker storage simulation
   local db_store
+  local tracking_store
 
   before_each(function()
     helpers.setup()
@@ -22,23 +22,22 @@ describe("end-to-end multi-picker", function()
       return mock_time
     end
 
-    original_new_timer = vim.loop.new_timer
-    vim.loop.new_timer = function()
-      return {
-        start = function() end,
-        stop = function() end,
-        close = function() end,
-      }
-    end
-
-    -- Per-picker db store
+    -- Per-picker db store (weights and tracking stored separately)
     db_store = {}
+    tracking_store = {}
     mock_db = {
       get_weights = function(picker_name, _latency_ctx)
         return vim.deepcopy(db_store[picker_name] or {})
       end,
       save_weights = function(picker_name, data, _latency_ctx)
         db_store[picker_name] = vim.deepcopy(data)
+        return true
+      end,
+      get_tracking = function(picker_name, _latency_ctx)
+        return vim.deepcopy(tracking_store[picker_name] or {})
+      end,
+      save_tracking = function(picker_name, data, _latency_ctx)
+        tracking_store[picker_name] = vim.deepcopy(data)
         return true
       end,
       reset_cache = function() end,
@@ -70,7 +69,6 @@ describe("end-to-end multi-picker", function()
 
   after_each(function()
     os.time = original_os_time -- luacheck: ignore 122
-    vim.loop.new_timer = original_new_timer
     helpers.clear_plugin_modules()
     package.loaded["neural-open.db"] = nil
     package.loaded["neural-open.weights"] = nil
@@ -177,10 +175,9 @@ describe("end-to-end multi-picker", function()
       local cwd = vim.fn.getcwd()
 
       item_tracking.record_selection("learn_test", "itemB", cwd)
-      item_tracking.flush("learn_test")
 
-      local stored = db_store["learn_test"]
-      assert.is_not_nil(stored, "learn_test picker should have data in store")
+      local stored = tracking_store["learn_test"]
+      assert.is_not_nil(stored, "learn_test picker should have data in tracking store")
       assert.is_not_nil(stored.item_tracking, "item_tracking key should exist")
       assert.is_true(stored.item_tracking.frecency["itemB"] > 0)
     end)
@@ -233,21 +230,19 @@ describe("end-to-end multi-picker", function()
   end)
 
   describe("per-picker isolation", function()
-    it("two pickers do not share weight data", function()
+    it("two pickers do not share tracking data", function()
       local item_tracking = require("neural-open.item_tracking")
       local cwd = vim.fn.getcwd()
 
       -- Record selections in picker A
       item_tracking.record_selection("picker_a", "alpha", cwd)
-      item_tracking.flush("picker_a")
 
       -- Record selections in picker B
       item_tracking.record_selection("picker_b", "beta", cwd)
-      item_tracking.flush("picker_b")
 
       -- Verify each picker has its own data
-      local data_a = db_store["picker_a"]
-      local data_b = db_store["picker_b"]
+      local data_a = tracking_store["picker_a"]
+      local data_b = tracking_store["picker_b"]
 
       assert.is_not_nil(data_a)
       assert.is_not_nil(data_b)

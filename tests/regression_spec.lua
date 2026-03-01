@@ -96,6 +96,10 @@ describe("scoring pipeline regression", function()
         return {}
       end,
       save_weights = function(_picker_name, _data, _latency_ctx) end,
+      get_tracking = function(_picker_name, _latency_ctx)
+        return {}
+      end,
+      save_tracking = function(_picker_name, _data, _latency_ctx) end,
     }
 
     -- Load real modules (including real weights module for classic defaults)

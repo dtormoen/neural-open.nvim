@@ -188,4 +188,140 @@ describe("db module", function()
       end)
     end)
   end)
+
+  describe("tracking file separation", function()
+    it("should create separate tracking file on save_tracking", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
+        db.reset_cache()
+
+        db.save_tracking("files", { recency_list = { "/a.lua", "/b.lua" } })
+
+        assert.equals(1, vim.fn.filereadable(temp_dir .. "/files.tracking.json"))
+        assert.equals(0, vim.fn.filereadable(temp_dir .. "/files.json"))
+      end)
+    end)
+
+    it("should migrate tracking keys from weight file on first get_tracking", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
+        db.reset_cache()
+
+        -- Create a files.json with both weight and tracking keys
+        local combined = {
+          nn = { weights = { { 1, 2, 3 } } },
+          recency_list = { "/a.lua", "/b.lua" },
+          transition_frecency = { ["/a.lua"] = { ["/b.lua"] = 1000000000 } },
+        }
+        local f = io.open(temp_dir .. "/files.json", "w")
+        f:write(vim.json.encode(combined))
+        f:close()
+
+        local tracking = db.get_tracking("files")
+
+        -- Tracking data should contain migrated keys
+        assert.is_not_nil(tracking.recency_list)
+        assert.equals(2, #tracking.recency_list)
+        assert.is_not_nil(tracking.transition_frecency)
+
+        -- Weight file should only have nn key
+        local weights = db.get_weights("files")
+        assert.is_not_nil(weights.nn)
+        assert.is_nil(weights.recency_list)
+        assert.is_nil(weights.transition_frecency)
+
+        -- Tracking file should exist
+        assert.equals(1, vim.fn.filereadable(temp_dir .. "/files.tracking.json"))
+      end)
+    end)
+
+    it("should migrate item_tracking key from weight file", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
+        db.reset_cache()
+
+        local combined = {
+          nn = { weights = { { 1, 2 } } },
+          item_tracking = { frecency = { build = 1000000000 } },
+        }
+        local f = io.open(temp_dir .. "/picker.json", "w")
+        f:write(vim.json.encode(combined))
+        f:close()
+
+        local tracking = db.get_tracking("picker")
+
+        assert.is_not_nil(tracking.item_tracking)
+        assert.is_not_nil(tracking.item_tracking.frecency)
+
+        local weights = db.get_weights("picker")
+        assert.is_not_nil(weights.nn)
+        assert.is_nil(weights.item_tracking)
+      end)
+    end)
+
+    it("should handle already-migrated state (idempotent)", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
+        db.reset_cache()
+
+        -- Create both files already separated
+        local weights_data = { nn = { weights = { 1, 2 } } }
+        local tracking_data = { recency_list = { "/a.lua" } }
+
+        local wf = io.open(temp_dir .. "/files.json", "w")
+        wf:write(vim.json.encode(weights_data))
+        wf:close()
+
+        local tf = io.open(temp_dir .. "/files.tracking.json", "w")
+        tf:write(vim.json.encode(tracking_data))
+        tf:close()
+
+        local tracking = db.get_tracking("files")
+        assert.same({ "/a.lua" }, tracking.recency_list)
+
+        -- Weight file should be unchanged
+        local weights = db.get_weights("files")
+        assert.is_not_nil(weights.nn)
+        assert.is_nil(weights.recency_list)
+      end)
+    end)
+
+    it("should handle fresh install (no files exist)", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
+        db.reset_cache()
+
+        local tracking = db.get_tracking("newpicker")
+        assert.same({}, tracking)
+      end)
+    end)
+
+    it("should migrate legacy transition_history key", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
+        db.reset_cache()
+
+        local combined = {
+          transition_history = { { from = "/a.lua", to = "/b.lua", timestamp = 123 } },
+          nn = { weights = { 1 } },
+        }
+        local f = io.open(temp_dir .. "/files.json", "w")
+        f:write(vim.json.encode(combined))
+        f:close()
+
+        local tracking = db.get_tracking("files")
+
+        -- transition_history is just deleted, not migrated to tracking
+        assert.is_nil(tracking.transition_history)
+
+        -- Weight file should no longer have transition_history
+        local weights = db.get_weights("files")
+        assert.is_nil(weights.transition_history)
+        assert.is_not_nil(weights.nn)
+
+        -- Tracking file should exist (migration wrote it, even if empty)
+        assert.equals(1, vim.fn.filereadable(temp_dir .. "/files.tracking.json"))
+      end)
+    end)
+  end)
 end)

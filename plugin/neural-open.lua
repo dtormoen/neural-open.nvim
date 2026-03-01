@@ -44,11 +44,11 @@ vim.api.nvim_create_autocmd("BufEnter", {
   desc = "Track buffer focus for NeuralOpen recency",
 })
 
--- Flush recency list to disk before exiting Neovim
+-- Flush recency data to disk before exiting Neovim
 vim.api.nvim_create_autocmd("VimLeavePre", {
   group = "NeuralOpenRecency",
   callback = function()
     require("neural-open.recent").flush()
   end,
-  desc = "Persist NeuralOpen recency list on exit",
+  desc = "Persist NeuralOpen recency data on exit",
 })
