@@ -409,6 +409,30 @@ local function init_optimizer_state(optimizer_type, architecture)
   end
 end
 
+--- Compute and store weight L2 norms and average magnitudes per layer
+---@param weights table Network weight matrices
+---@param stats table? Stats table to populate (no-op if nil)
+local function compute_weight_statistics(weights, stats)
+  if not stats then
+    return
+  end
+  stats.weight_norms = {}
+  stats.avg_weight_magnitudes = {}
+  for i = 1, #weights do
+    local sum_squared, sum_abs, count = 0, 0, 0
+    for j = 1, #weights[i] do
+      for k = 1, #weights[i][j] do
+        local w = weights[i][j][k]
+        sum_squared = sum_squared + w * w
+        sum_abs = sum_abs + math.abs(w)
+        count = count + 1
+      end
+    end
+    stats.weight_norms[i] = math.sqrt(sum_squared)
+    stats.avg_weight_magnitudes[i] = sum_abs / count
+  end
+end
+
 --- Update weights using SGD optimizer
 ---@param st table State table
 ---@param weights table Current weights
@@ -419,7 +443,7 @@ end
 ---@param betas table? Batch norm shift parameters
 ---@param gamma_gradients table? Gamma gradients
 ---@param beta_gradients table? Beta gradients
----@param learning_rate number Learning rate
+---@param effective_lr number Effective learning rate (after warmup)
 ---@param config table Configuration with weight_decay settings
 local function update_parameters_sgd(
   st,
@@ -431,24 +455,9 @@ local function update_parameters_sgd(
   betas,
   gamma_gradients,
   beta_gradients,
-  learning_rate,
+  effective_lr,
   config
 )
-  -- Initialize optimizer state if needed (for timestep tracking in warmup)
-  if not st.optimizer_state then
-    st.optimizer_state = { timestep = 0 }
-  end
-
-  -- Increment timestep
-  st.optimizer_state.timestep = st.optimizer_state.timestep + 1
-  local t = st.optimizer_state.timestep
-
-  -- Apply learning rate warmup
-  local warmup_steps = config.warmup_steps or 0
-  local warmup_start_factor = config.warmup_start_factor or 0.1
-  local warmup_factor = calculate_warmup_factor(t, warmup_steps, warmup_start_factor)
-  local effective_lr = learning_rate * warmup_factor
-
   for i = 1, #weights do
     -- Apply weight decay (L2 regularization) to weight gradients
     local layer_decay = config.weight_decay or 0
@@ -476,25 +485,49 @@ local function update_parameters_sgd(
     end
   end
 
-  -- Calculate and store weight statistics
-  if st.stats then
-    st.stats.weight_norms = {}
-    st.stats.avg_weight_magnitudes = {}
-    for i = 1, #weights do
-      local sum_squared = 0
-      local sum_abs = 0
-      local count = 0
-      for j = 1, #weights[i] do
-        for k = 1, #weights[i][j] do
-          sum_squared = sum_squared + weights[i][j][k] * weights[i][j][k]
-          sum_abs = sum_abs + math.abs(weights[i][j][k])
-          count = count + 1
-        end
-      end
-      st.stats.weight_norms[i] = math.sqrt(sum_squared)
-      st.stats.avg_weight_magnitudes[i] = sum_abs / count
-    end
+  compute_weight_statistics(weights, st.stats)
+end
+
+--- Single AdamW step for one parameter tensor (weights, biases, gammas, or betas)
+---@param param table Parameter tensor
+---@param grad table Gradient tensor
+---@param m table First moment estimate
+---@param v table Second moment estimate
+---@param beta1 number First moment decay rate
+---@param beta2 number Second moment decay rate
+---@param epsilon number Numerical stability constant
+---@param bc1 number Bias correction factor for first moment
+---@param bc2 number Bias correction factor for second moment
+---@param lr number Effective learning rate
+---@param weight_decay number? Optional decoupled weight decay coefficient
+---@return table param Updated parameter
+---@return table m Updated first moment
+---@return table v Updated second moment
+local function adamw_step(param, grad, m, v, beta1, beta2, epsilon, bc1, bc2, lr, weight_decay)
+  -- Update first moment: m = beta1 * m + (1 - beta1) * g
+  m = nn_core.add(nn_core.scalar_mul(m, beta1), nn_core.scalar_mul(grad, 1 - beta1))
+  -- Update second moment: v = beta2 * v + (1 - beta2) * g^2
+  local g_squared = nn_core.element_wise(grad, function(x)
+    return x * x
+  end)
+  v = nn_core.add(nn_core.scalar_mul(v, beta2), nn_core.scalar_mul(g_squared, 1 - beta2))
+  -- Bias-corrected moments
+  local m_hat = nn_core.scalar_mul(m, 1 / bc1)
+  local v_hat = nn_core.scalar_mul(v, 1 / bc2)
+  -- AdamW update: m_hat / (sqrt(v_hat) + epsilon)
+  local v_sqrt_eps = nn_core.element_wise(v_hat, function(x)
+    return math.sqrt(x) + epsilon
+  end)
+  local update = nn_core.element_wise2(m_hat, v_sqrt_eps, function(a, b)
+    return a / b
+  end)
+  -- Apply decoupled weight decay if specified
+  if weight_decay and weight_decay > 0 then
+    update = nn_core.add(update, nn_core.scalar_mul(param, weight_decay))
   end
+  -- Update parameter: P = P - lr * update
+  param = nn_core.subtract(param, nn_core.scalar_mul(update, lr))
+  return param, m, v
 end
 
 --- Update weights using AdamW optimizer
@@ -507,7 +540,7 @@ end
 ---@param betas table? Batch norm shift parameters
 ---@param gamma_gradients table? Gamma gradients
 ---@param beta_gradients table? Beta gradients
----@param learning_rate number Learning rate
+---@param effective_lr number Effective learning rate (after warmup)
 ---@param config table Configuration with AdamW settings
 local function update_parameters_adamw(
   st,
@@ -519,27 +552,14 @@ local function update_parameters_adamw(
   betas,
   gamma_gradients,
   beta_gradients,
-  learning_rate,
+  effective_lr,
   config
 )
   local beta1 = config.adam_beta1 or 0.9
   local beta2 = config.adam_beta2 or 0.999
   local epsilon = config.adam_epsilon or 1e-8
 
-  -- Initialize optimizer state if needed
-  if not st.optimizer_state then
-    st.optimizer_state = init_optimizer_state("adamw", config.architecture)
-  end
-
-  -- Increment timestep
-  st.optimizer_state.timestep = st.optimizer_state.timestep + 1
   local t = st.optimizer_state.timestep
-
-  -- Apply learning rate warmup
-  local warmup_steps = config.warmup_steps or 0
-  local warmup_start_factor = config.warmup_start_factor or 0.1
-  local warmup_factor = calculate_warmup_factor(t, warmup_steps, warmup_start_factor)
-  local effective_lr = learning_rate * warmup_factor
 
   -- Bias correction factors
   local bias_correction1 = 1 - beta1 ^ t
@@ -547,98 +567,64 @@ local function update_parameters_adamw(
 
   -- Update each layer
   for i = 1, #weights do
-    -- Get moments for weights
-    local m_w = st.optimizer_state.moments.first.weights[i]
-    local v_w = st.optimizer_state.moments.second.weights[i]
-
-    -- Update first moment: m = β1 * m + (1 - β1) * g
-    m_w = nn_core.add(nn_core.scalar_mul(m_w, beta1), nn_core.scalar_mul(weight_gradients[i], 1 - beta1))
-
-    -- Update second moment: v = β2 * v + (1 - β2) * g²
-    local g_squared = nn_core.element_wise(weight_gradients[i], function(x)
-      return x * x
-    end)
-    v_w = nn_core.add(nn_core.scalar_mul(v_w, beta2), nn_core.scalar_mul(g_squared, 1 - beta2))
-
-    -- Bias-corrected moments
-    local m_hat = nn_core.scalar_mul(m_w, 1 / bias_correction1)
-    local v_hat = nn_core.scalar_mul(v_w, 1 / bias_correction2)
-
-    -- AdamW update: m_hat / (sqrt(v_hat) + ε)
-    local v_sqrt_eps = nn_core.element_wise(v_hat, function(x)
-      return math.sqrt(x) + epsilon
-    end)
-    local update = nn_core.element_wise2(m_hat, v_sqrt_eps, function(m, v)
-      return m / v
-    end)
-
-    -- Apply decoupled weight decay directly to weights
     local layer_decay = config.weight_decay or 0
     if config.layer_decay_multipliers and config.layer_decay_multipliers[i] then
       layer_decay = layer_decay * config.layer_decay_multipliers[i]
     end
 
-    if layer_decay > 0 then
-      update = nn_core.add(update, nn_core.scalar_mul(weights[i], layer_decay))
-    end
-
-    -- Update weights: W = W - α * update
-    weights[i] = nn_core.subtract(weights[i], nn_core.scalar_mul(update, effective_lr))
-
-    -- Store updated moments
+    -- Update weights (with weight decay)
+    local m_w = st.optimizer_state.moments.first.weights[i]
+    local v_w = st.optimizer_state.moments.second.weights[i]
+    weights[i], m_w, v_w = adamw_step(
+      weights[i],
+      weight_gradients[i],
+      m_w,
+      v_w,
+      beta1,
+      beta2,
+      epsilon,
+      bias_correction1,
+      bias_correction2,
+      effective_lr,
+      layer_decay
+    )
     st.optimizer_state.moments.first.weights[i] = m_w
     st.optimizer_state.moments.second.weights[i] = v_w
 
-    -- Update biases
+    -- Update biases (no weight decay)
     local m_b = st.optimizer_state.moments.first.biases[i]
     local v_b = st.optimizer_state.moments.second.biases[i]
-
-    m_b = nn_core.add(nn_core.scalar_mul(m_b, beta1), nn_core.scalar_mul(bias_gradients[i], 1 - beta1))
-
-    local b_g_squared = nn_core.element_wise(bias_gradients[i], function(x)
-      return x * x
-    end)
-    v_b = nn_core.add(nn_core.scalar_mul(v_b, beta2), nn_core.scalar_mul(b_g_squared, 1 - beta2))
-
-    local m_b_hat = nn_core.scalar_mul(m_b, 1 / bias_correction1)
-    local v_b_hat = nn_core.scalar_mul(v_b, 1 / bias_correction2)
-
-    local v_b_sqrt_eps = nn_core.element_wise(v_b_hat, function(x)
-      return math.sqrt(x) + epsilon
-    end)
-    local b_update = nn_core.element_wise2(m_b_hat, v_b_sqrt_eps, function(m, v)
-      return m / v
-    end)
-
-    biases[i] = nn_core.subtract(biases[i], nn_core.scalar_mul(b_update, effective_lr))
-
+    biases[i], m_b, v_b = adamw_step(
+      biases[i],
+      bias_gradients[i],
+      m_b,
+      v_b,
+      beta1,
+      beta2,
+      epsilon,
+      bias_correction1,
+      bias_correction2,
+      effective_lr
+    )
     st.optimizer_state.moments.first.biases[i] = m_b
     st.optimizer_state.moments.second.biases[i] = v_b
 
-    -- Update batch norm parameters if present
+    -- Update batch norm params if present
     if gammas and gammas[i] and gamma_gradients and gamma_gradients[i] then
       local m_g = st.optimizer_state.moments.first.gammas[i]
       local v_g = st.optimizer_state.moments.second.gammas[i]
-
-      m_g = nn_core.add(nn_core.scalar_mul(m_g, beta1), nn_core.scalar_mul(gamma_gradients[i], 1 - beta1))
-
-      local g_g_squared = nn_core.element_wise(gamma_gradients[i], function(x)
-        return x * x
-      end)
-      v_g = nn_core.add(nn_core.scalar_mul(v_g, beta2), nn_core.scalar_mul(g_g_squared, 1 - beta2))
-
-      local m_g_hat = nn_core.scalar_mul(m_g, 1 / bias_correction1)
-      local v_g_hat = nn_core.scalar_mul(v_g, 1 / bias_correction2)
-
-      local v_g_sqrt_eps = nn_core.element_wise(v_g_hat, function(x)
-        return math.sqrt(x) + epsilon
-      end)
-      local g_update = nn_core.element_wise2(m_g_hat, v_g_sqrt_eps, function(m, v)
-        return m / v
-      end)
-
-      gammas[i] = nn_core.subtract(gammas[i], nn_core.scalar_mul(g_update, effective_lr))
-
+      gammas[i], m_g, v_g = adamw_step(
+        gammas[i],
+        gamma_gradients[i],
+        m_g,
+        v_g,
+        beta1,
+        beta2,
+        epsilon,
+        bias_correction1,
+        bias_correction2,
+        effective_lr
+      )
       st.optimizer_state.moments.first.gammas[i] = m_g
       st.optimizer_state.moments.second.gammas[i] = v_g
     end
@@ -646,50 +632,24 @@ local function update_parameters_adamw(
     if betas and betas[i] and beta_gradients and beta_gradients[i] then
       local m_beta = st.optimizer_state.moments.first.betas[i]
       local v_beta = st.optimizer_state.moments.second.betas[i]
-
-      m_beta = nn_core.add(nn_core.scalar_mul(m_beta, beta1), nn_core.scalar_mul(beta_gradients[i], 1 - beta1))
-
-      local beta_g_squared = nn_core.element_wise(beta_gradients[i], function(x)
-        return x * x
-      end)
-      v_beta = nn_core.add(nn_core.scalar_mul(v_beta, beta2), nn_core.scalar_mul(beta_g_squared, 1 - beta2))
-
-      local m_beta_hat = nn_core.scalar_mul(m_beta, 1 / bias_correction1)
-      local v_beta_hat = nn_core.scalar_mul(v_beta, 1 / bias_correction2)
-
-      local v_beta_sqrt_eps = nn_core.element_wise(v_beta_hat, function(x)
-        return math.sqrt(x) + epsilon
-      end)
-      local beta_update = nn_core.element_wise2(m_beta_hat, v_beta_sqrt_eps, function(m, v)
-        return m / v
-      end)
-
-      betas[i] = nn_core.subtract(betas[i], nn_core.scalar_mul(beta_update, effective_lr))
-
+      betas[i], m_beta, v_beta = adamw_step(
+        betas[i],
+        beta_gradients[i],
+        m_beta,
+        v_beta,
+        beta1,
+        beta2,
+        epsilon,
+        bias_correction1,
+        bias_correction2,
+        effective_lr
+      )
       st.optimizer_state.moments.first.betas[i] = m_beta
       st.optimizer_state.moments.second.betas[i] = v_beta
     end
   end
 
-  -- Calculate and store weight statistics
-  if st.stats then
-    st.stats.weight_norms = {}
-    st.stats.avg_weight_magnitudes = {}
-    for i = 1, #weights do
-      local sum_squared = 0
-      local sum_abs = 0
-      local count = 0
-      for j = 1, #weights[i] do
-        for k = 1, #weights[i][j] do
-          sum_squared = sum_squared + weights[i][j][k] * weights[i][j][k]
-          sum_abs = sum_abs + math.abs(weights[i][j][k])
-          count = count + 1
-        end
-      end
-      st.stats.weight_norms[i] = math.sqrt(sum_squared)
-      st.stats.avg_weight_magnitudes[i] = sum_abs / count
-    end
-  end
+  compute_weight_statistics(weights, st.stats)
 end
 
 --- Update weights using configured optimizer (dispatcher function)
@@ -717,6 +677,25 @@ local function update_parameters(
   learning_rate,
   config
 )
+  -- Initialize optimizer state if needed
+  if not st.optimizer_state then
+    if st.optimizer_type == "adamw" then
+      st.optimizer_state = init_optimizer_state("adamw", config.architecture)
+    else
+      st.optimizer_state = { timestep = 0 }
+    end
+  end
+
+  -- Increment timestep
+  st.optimizer_state.timestep = st.optimizer_state.timestep + 1
+  local t = st.optimizer_state.timestep
+
+  -- Apply learning rate warmup
+  local warmup_steps = config.warmup_steps or 0
+  local warmup_start_factor = config.warmup_start_factor or 0.1
+  local warmup_factor = calculate_warmup_factor(t, warmup_steps, warmup_start_factor)
+  local effective_lr = learning_rate * warmup_factor
+
   if st.optimizer_type == "adamw" then
     return update_parameters_adamw(
       st,
@@ -728,7 +707,7 @@ local function update_parameters(
       betas,
       gamma_gradients,
       beta_gradients,
-      learning_rate,
+      effective_lr,
       config
     )
   else
@@ -742,388 +721,10 @@ local function update_parameters(
       betas,
       gamma_gradients,
       beta_gradients,
-      learning_rate,
+      effective_lr,
       config
     )
   end
-end
-
---- Average gradients by batch size
----@param gradients table Gradients to average (modified in place)
----@param batch_size number Size of the batch
-local function average_gradients(gradients, batch_size)
-  for i = 1, #gradients do
-    if gradients[i] then
-      gradients[i] = nn_core.scalar_mul(gradients[i], 1.0 / batch_size)
-    end
-  end
-end
-
---- Convert a flat input buffer to matrix format with optional match dropout
----@param input_buf number[] Flat array of normalized features in canonical order
----@param drop_match_features? boolean Whether to zero out match/virtual_name features
----@param match_idx? number Index of match feature in input_buf
----@param virtual_name_idx? number Index of virtual_name feature (nil for item pickers)
----@return table Input matrix
-local function features_to_input(input_buf, drop_match_features, match_idx, virtual_name_idx)
-  -- Copy is required: input_buf is a shared mutable buffer; dropout would corrupt it
-  local input = {}
-  for i = 1, #input_buf do
-    input[i] = input_buf[i]
-  end
-  if drop_match_features then
-    if match_idx then
-      input[match_idx] = 0
-    end
-    if virtual_name_idx then
-      input[virtual_name_idx] = 0
-    end
-  end
-  return { input } -- nn_core matrix format: { {v1, v2, ...} }
-end
-
---- Convert input_buf flat array to named features table (for debug/display only)
----@param input_buf number[] Flat array of normalized features in canonical order
----@param feature_names? string[] Feature names to use (defaults to DEFAULT_FEATURE_NAMES)
----@return table<string, number>
-local function input_buf_to_features(input_buf, feature_names)
-  local names = feature_names or DEFAULT_FEATURE_NAMES
-  local features = {}
-  for i, name in ipairs(names) do
-    features[name] = input_buf[i]
-  end
-  return features
-end
-
---- Construct multiple batches from pairs and history as pair batches
----@param current_pairs table Current training pairs from user selection
----@param history table Training history (array of pairs)
----@param batch_size number Target number of PAIRS per batch
----@param num_batches number Number of batches to create
----@return table Array of pair batches
-local function construct_batches(current_pairs, history, batch_size, num_batches)
-  local batch_data = {}
-  local used_indices = {}
-
-  -- Minimum batch size: 50% of target batch size
-  local min_batch_size = math.ceil(batch_size * 0.5)
-
-  -- First batch includes current pairs (up to batch_size)
-  local first_batch_pairs = {}
-  for _, pair in ipairs(current_pairs) do
-    if #first_batch_pairs >= batch_size then
-      break
-    end
-    table.insert(first_batch_pairs, pair)
-  end
-
-  -- Fill rest of first batch from history (recent pairs first)
-  local remaining_first = batch_size - #first_batch_pairs
-  if remaining_first > 0 and #history > 0 then
-    -- Start from end of history (most recent)
-    for i = #history, math.max(1, #history - remaining_first + 1), -1 do
-      if #first_batch_pairs >= batch_size then
-        break
-      end
-      table.insert(first_batch_pairs, history[i])
-      used_indices[i] = true
-    end
-  end
-
-  -- Only add first batch if it meets minimum size requirement
-  if #first_batch_pairs >= min_batch_size then
-    table.insert(batch_data, { pairs = first_batch_pairs })
-  end
-
-  -- Create additional batches from remaining history
-  for _ = 2, num_batches do
-    local batch_pairs = {}
-    local available = {}
-
-    -- Collect unused history indices
-    for i = 1, #history do
-      if not used_indices[i] then
-        table.insert(available, i)
-      end
-    end
-
-    -- Stop if no more unique pairs available
-    if #available == 0 then
-      break
-    end
-
-    -- Randomly sample from available history
-    local pairs_to_take = math.min(batch_size, #available)
-    for _ = 1, pairs_to_take do
-      if #available == 0 then
-        break
-      end
-      local rand_idx = math.random(#available)
-      local history_idx = available[rand_idx]
-      table.insert(batch_pairs, history[history_idx])
-      used_indices[history_idx] = true
-      table.remove(available, rand_idx)
-    end
-
-    -- Only add batch if it meets minimum size requirement
-    if #batch_pairs >= min_batch_size then
-      table.insert(batch_data, { pairs = batch_pairs })
-    end
-  end
-
-  return batch_data
-end
-
---- Train the network on multiple batches with pairwise hinge loss
----@param st table State table
----@param batches table Array of pair batches {pairs}
----@param latency_ctx table|nil Optional latency context for performance tracking
----@return number Average loss across all batches
-local function train_on_batches(st, batches, latency_ctx)
-  if not st.weights or #batches == 0 then
-    return 0
-  end
-
-  -- Track memory usage before training
-  local mem_before_kb = collectgarbage("count")
-
-  -- Set latency context for nn_core operations
-  nn_core.set_latency_context(latency_ctx)
-  nn_core.reset_call_stats()
-
-  local total_loss = 0
-  local total_pairs = 0
-
-  -- Initialize loss history if needed
-  st.stats.loss_history = st.stats.loss_history or {}
-
-  -- Initialize ranking accuracy history if needed
-  st.stats.ranking_accuracy_history = st.stats.ranking_accuracy_history or {}
-
-  -- Get margin from config
-  local margin = st.config.margin or 1.0
-
-  for _, batch in ipairs(batches) do
-    if batch.pairs and #batch.pairs > 0 then
-      local batch_size = #batch.pairs -- Number of pairs in this batch
-      local batch_timing = {}
-
-      local batch_loss = 0
-      local batch_correct = 0
-      local batch_margin_correct = 0
-
-      -- BATCHED FORWARD PASS: Process all items together for proper batch normalization
-      -- Combine positive and negative items into single batch so batch norm sees full feature distribution
-      local fwd_start = vim.loop.hrtime()
-
-      -- Interleave positive and negative inputs: [pos1, neg1, pos2, neg2, ...]
-      -- This ensures batch norm statistics reflect both positive and negative features together
-      local combined_inputs = {}
-      for i, pair in ipairs(batch.pairs) do
-        combined_inputs[2 * i - 1] = pair.positive_input[1] -- Odd indices: positive items
-        combined_inputs[2 * i] = pair.negative_input[1] -- Even indices: negative items
-      end
-
-      -- Single forward pass for all items (2 * batch_size × features)
-      local combined_activations, combined_pre_activations, combined_bn_cache, combined_dropout_masks = forward_pass(
-        combined_inputs,
-        st.weights,
-        st.biases,
-        st.gammas,
-        st.betas,
-        st.running_means,
-        st.running_vars,
-        true, -- training mode
-        st.config.dropout_rates,
-        true, -- return logits for training
-        st.stats
-      )
-
-      local forward_time = vim.loop.hrtime() - fwd_start
-
-      -- Extract logits: odd indices are positive, even indices are negative
-      local combined_logits = combined_activations[#combined_activations] -- [2*batch_size × 1]
-
-      -- Compute losses and accuracies by extracting positive/negative logits from interleaved batch
-      local pair_losses = {}
-      for i = 1, batch_size do
-        local logit_pos = combined_logits[2 * i - 1][1] -- Odd index: positive item
-        local logit_neg = combined_logits[2 * i][1] -- Even index: negative item
-
-        -- Track ranking accuracy
-        local is_correct = logit_pos > logit_neg
-        local is_margin_correct = (logit_pos - logit_neg) >= margin
-
-        if is_correct then
-          batch_correct = batch_correct + 1
-        end
-        if is_margin_correct then
-          batch_margin_correct = batch_margin_correct + 1
-        end
-
-        -- Compute pairwise hinge loss
-        local pair_loss = nn_core.pairwise_hinge_loss(logit_pos, logit_neg, margin)
-        pair_losses[i] = pair_loss
-        batch_loss = batch_loss + pair_loss
-      end
-
-      -- BATCHED BACKWARD PASS: Compute gradients for all items at once
-      local bwd_start = vim.loop.hrtime()
-
-      -- Create gradient matrix [2*batch_size × 1] for combined batch
-      -- Interleaved: [grad_pos1, grad_neg1, grad_pos2, grad_neg2, ...]
-      local combined_grads = nn_core.zeros(2 * batch_size, 1)
-
-      for i = 1, batch_size do
-        if pair_losses[i] > 0 then
-          combined_grads[2 * i - 1][1] = -1.0 -- Positive item: increase score
-          combined_grads[2 * i][1] = 1.0 -- Negative item: decrease score
-        end
-        -- If loss == 0, gradients remain 0 (margin already satisfied)
-      end
-
-      -- Single backward pass for all items
-      local weight_grads_accumulated, bias_grads_accumulated, gamma_grads_accumulated, beta_grads_accumulated =
-        backward_pass_pairwise(
-          combined_activations,
-          combined_pre_activations,
-          combined_grads, -- Pass batched gradients for all items
-          st.weights,
-          st.gammas,
-          combined_bn_cache,
-          combined_dropout_masks,
-          st.config.dropout_rates
-        )
-
-      local backward_time = vim.loop.hrtime() - bwd_start
-
-      batch_timing.forward_ms = forward_time / 1e6
-      batch_timing.backward_ms = backward_time / 1e6
-
-      -- AVERAGE GRADIENTS by number of pairs
-      if weight_grads_accumulated and bias_grads_accumulated then
-        average_gradients(weight_grads_accumulated, batch_size)
-        average_gradients(bias_grads_accumulated, batch_size)
-        if gamma_grads_accumulated and beta_grads_accumulated then
-          average_gradients(gamma_grads_accumulated, batch_size)
-          average_gradients(beta_grads_accumulated, batch_size)
-        end
-
-        -- CLIP GRADIENTS
-        local max_grad_norm = 5.0
-        weight_grads_accumulated = nn_core.clip_gradients(weight_grads_accumulated, max_grad_norm)
-        bias_grads_accumulated = nn_core.clip_gradients(bias_grads_accumulated, max_grad_norm)
-        if gamma_grads_accumulated and beta_grads_accumulated then
-          gamma_grads_accumulated = nn_core.clip_gradients(gamma_grads_accumulated, max_grad_norm)
-          beta_grads_accumulated = nn_core.clip_gradients(beta_grads_accumulated, max_grad_norm)
-        end
-
-        -- UPDATE PARAMETERS
-        local update_start = vim.loop.hrtime()
-        update_parameters(
-          st,
-          st.weights,
-          st.biases,
-          weight_grads_accumulated,
-          bias_grads_accumulated,
-          st.gammas,
-          st.betas,
-          gamma_grads_accumulated,
-          beta_grads_accumulated,
-          st.config.learning_rate,
-          st.config
-        )
-        batch_timing.update_ms = (vim.loop.hrtime() - update_start) / 1e6
-      else
-        -- No gradients (all pairs had loss = 0)
-        batch_timing.update_ms = 0
-      end
-
-      -- STORE TIMING in circular buffer
-      table.insert(st.stats.batch_timings, batch_timing)
-      if #st.stats.batch_timings > 10 then
-        table.remove(st.stats.batch_timings, 1)
-      end
-
-      -- Calculate average timing
-      if #st.stats.batch_timings > 0 then
-        local avg_forward, avg_backward, avg_update = 0, 0, 0
-        for _, timing in ipairs(st.stats.batch_timings) do
-          avg_forward = avg_forward + timing.forward_ms
-          avg_backward = avg_backward + timing.backward_ms
-          avg_update = avg_update + timing.update_ms
-        end
-        local n = #st.stats.batch_timings
-        st.stats.avg_batch_timing = {
-          forward_ms = avg_forward / n,
-          backward_ms = avg_backward / n,
-          update_ms = avg_update / n,
-          total_ms = (avg_forward + avg_backward + avg_update) / n,
-        }
-      end
-
-      -- Track statistics
-      batch_loss = batch_loss / batch_size
-      total_loss = total_loss + batch_loss
-      total_pairs = total_pairs + batch_size
-      st.stats.batches_trained = st.stats.batches_trained + 1
-
-      -- Add individual batch loss to history
-      table.insert(st.stats.loss_history, batch_loss)
-      if #st.stats.loss_history > 1000 then
-        table.remove(st.stats.loss_history, 1)
-      end
-
-      -- Track ranking accuracy history
-      table.insert(st.stats.ranking_accuracy_history, {
-        correct = batch_correct,
-        margin_correct = batch_margin_correct,
-        total = batch_size,
-      })
-      if #st.stats.ranking_accuracy_history > 1000 then
-        table.remove(st.stats.ranking_accuracy_history, 1)
-      end
-    end
-  end
-
-  -- Update statistics
-  if #batches > 0 then
-    st.stats.last_loss = total_loss / #batches
-    st.stats.samples_per_batch = total_pairs / #batches
-  else
-    st.stats.last_loss = 0
-    st.stats.samples_per_batch = 0
-  end
-
-  -- Track memory usage after training
-  local mem_after_kb = collectgarbage("count")
-  local mem_delta_kb = mem_after_kb - mem_before_kb
-
-  -- Retrieve call stats and clear context
-  local call_stats = nn_core.get_call_stats()
-  nn_core.set_latency_context(nil)
-
-  -- Add call stats and memory delta to latency metadata
-  if latency_ctx then
-    local latency = require("neural-open.latency")
-    latency.add_metadata(latency_ctx, "nn.training", {
-      core_matmul_count = call_stats.matmul_count,
-      core_matmul_ops = call_stats.matmul_ops,
-      core_element_wise_count = call_stats.element_wise_count,
-      core_element_wise_ops = call_stats.element_wise_ops,
-      core_element_wise2_count = call_stats.element_wise2_count,
-      core_element_wise2_ops = call_stats.element_wise2_ops,
-      core_add_count = call_stats.add_count,
-      core_subtract_count = call_stats.subtract_count,
-      core_scalar_mul_count = call_stats.scalar_mul_count,
-      core_batch_norm_count = call_stats.batch_norm_count,
-      memory_before_kb = mem_before_kb,
-      memory_after_kb = mem_after_kb,
-      memory_delta_kb = mem_delta_kb,
-    })
-  end
-
-  return st.stats.last_loss
 end
 
 --- Ensure config is available on the given state table.
@@ -1488,7 +1089,8 @@ local function calculate_score_impl(st, input_buf)
 
   if not st.inference_cache then
     -- Fallback to general forward_pass when inference cache unavailable (e.g., empty/invalid weights)
-    local input = features_to_input(input_buf, false, st.match_idx, st.virtual_name_idx)
+    local nn_training = require("neural-open.algorithms.nn_training")
+    local input = nn_training.features_to_input(input_buf, false, st.match_idx, st.virtual_name_idx)
     local activations = forward_pass(
       input,
       st.weights,
@@ -1551,6 +1153,7 @@ end
 ---@param latency_ctx? table Optional latency context
 local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
   local latency = require("neural-open.latency")
+  local nn_training = require("neural-open.algorithms.nn_training")
   ensure_weights(st, true)
 
   local config = ensure_config(st)
@@ -1600,8 +1203,13 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
         -- Decide once per pair whether to drop match features (applies to both positive and negative)
         local drop_match = math.random() < match_dropout_rate
         table.insert(pairs_result, {
-          positive_input = features_to_input(positive_input_buf, drop_match, st.match_idx, st.virtual_name_idx),
-          negative_input = features_to_input(neg_input_buf, drop_match, st.match_idx, st.virtual_name_idx),
+          positive_input = nn_training.features_to_input(
+            positive_input_buf,
+            drop_match,
+            st.match_idx,
+            st.virtual_name_idx
+          ),
+          negative_input = nn_training.features_to_input(neg_input_buf, drop_match, st.match_idx, st.virtual_name_idx),
           positive_file = selected_item.nos.normalized_path or selected_item.nos.item_id,
           negative_file = neg_item.nos.normalized_path or neg_item.nos.item_id,
         })
@@ -1621,7 +1229,7 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
   local batches = latency.measure(latency_ctx, "nn.batch_construction", function()
     -- Construct batches BEFORE adding current pairs to history to avoid duplicates
     -- This ensures the first batch uses current pairs + old history (not current pairs twice)
-    return construct_batches(pairs, st.training_history, config.batch_size, config.batches_per_update)
+    return nn_training.construct_batches(pairs, st.training_history, config.batch_size, config.batches_per_update)
   end, "async.weight_update")
 
   latency.add_metadata(latency_ctx, "nn.batch_construction", {
@@ -1642,7 +1250,7 @@ local function update_weights_impl(st, selected_item, ranked_items, latency_ctx)
   -- Train the network on all batches
   if #batches > 0 then
     latency.start(latency_ctx, "nn.training", "async.weight_update")
-    train_on_batches(st, batches, latency_ctx)
+    nn_training.train_on_batches(st, batches, latency_ctx, M)
     latency.finish(latency_ctx, "nn.training")
 
     -- Rebuild inference cache after training modified weights/batch norm parameters
@@ -1769,6 +1377,7 @@ local fmt = require("neural-open.debug_fmt")
 ---@param all_items NeuralOpenItem[]?
 ---@return string[], table[]
 local function debug_view_impl(st, item, all_items)
+  local nn_training = require("neural-open.algorithms.nn_training")
   local lines = {}
   local hl = {}
 
@@ -1972,7 +1581,7 @@ local function debug_view_impl(st, item, all_items)
   local feature_names = get_feature_names(st)
   local normalized_features = nil
   if item.nos and item.nos.input_buf then
-    normalized_features = input_buf_to_features(item.nos.input_buf, feature_names)
+    normalized_features = nn_training.input_buf_to_features(item.nos.input_buf, feature_names)
   end
 
   if st.weights and st.weights[1] then
@@ -2018,10 +1627,10 @@ local function debug_view_impl(st, item, all_items)
     table.insert(lines, "")
 
     -- No match dropout during inference/debug
-    local input = features_to_input(item.nos.input_buf, false, st.match_idx, st.virtual_name_idx)
+    local input = nn_training.features_to_input(item.nos.input_buf, false, st.match_idx, st.virtual_name_idx)
 
-    -- Get logit output for debug info
-    local activations_logit = forward_pass(
+    -- Single forward pass with logits; compute sigmoid inline
+    local activations = forward_pass(
       input,
       st.weights,
       st.biases,
@@ -2033,21 +1642,8 @@ local function debug_view_impl(st, item, all_items)
       nil, -- no dropout
       true -- return logits
     )
-    local logit = activations_logit[#activations_logit][1][1]
-
-    -- Get sigmoid output for probability
-    local activations = forward_pass(
-      input,
-      st.weights,
-      st.biases,
-      st.gammas,
-      st.betas,
-      st.running_means,
-      st.running_vars,
-      false, -- inference mode
-      nil, -- no dropout
-      false -- return sigmoid
-    )
+    local logit = activations[#activations][1][1]
+    local sigmoid_val = 1 / (1 + math_exp(-logit))
 
     -- Show activation patterns
     for i = 2, #activations do
@@ -2074,7 +1670,7 @@ local function debug_view_impl(st, item, all_items)
         end
       else
         fmt.add_label(lines, hl, layer_name .. " Logit", string.format("%.4f", logit))
-        fmt.add_label(lines, hl, layer_name .. " Probability", string.format("%.4f (sigmoid)", activation[1]))
+        fmt.add_label(lines, hl, layer_name .. " Probability", string.format("%.4f (sigmoid)", sigmoid_val))
       end
     end
   end
@@ -2100,6 +1696,11 @@ end
 local function load_weights_impl(st)
   ensure_weights(st, true)
 end
+
+-- Internal API for nn_training module (not public)
+M.forward_pass = forward_pass
+M.backward_pass_pairwise = backward_pass_pairwise
+M.update_parameters = update_parameters
 
 --- Create a per-picker instance with isolated state
 ---@param config NosNNConfig
@@ -2130,46 +1731,41 @@ function M.create_instance(config)
     end,
     init = function() end, -- no-op; config already set via init_state
   }
-  ---@diagnostic disable-next-line: undefined-field
-  if _G._TEST then
-    instance._get_training_history = function()
-      return st.training_history
-    end
-    instance._get_weights = function()
-      return st.weights
-    end
-    instance._get_stats = function()
-      return st.stats
-    end
-    instance._get_optimizer_state = function()
-      return st.optimizer_state
-    end
-    instance._forward_pass = function(input)
-      return forward_pass(
-        input,
-        st.weights,
-        st.biases,
-        st.gammas,
-        st.betas,
-        st.running_means,
-        st.running_vars,
-        false, -- inference mode
-        nil, -- no dropout
-        false, -- return sigmoid output
-        st.stats
-      )
-    end
-    instance._features_to_input = features_to_input
+  instance._get_training_history = function()
+    return st.training_history
+  end
+  instance._get_weights = function()
+    return st.weights
+  end
+  instance._get_stats = function()
+    return st.stats
+  end
+  instance._get_optimizer_state = function()
+    return st.optimizer_state
+  end
+  instance._forward_pass = function(input)
+    return forward_pass(
+      input,
+      st.weights,
+      st.biases,
+      st.gammas,
+      st.betas,
+      st.running_means,
+      st.running_vars,
+      false, -- inference mode
+      nil, -- no dropout
+      false, -- return sigmoid output
+      st.stats
+    )
+  end
+  instance._features_to_input = function(...)
+    return require("neural-open.algorithms.nn_training").features_to_input(...)
   end
   return instance
 end
 
--- Testing helpers (only available in test environment)
----@diagnostic disable-next-line: undefined-field
-if _G._TEST then
-  function M._reset_states()
-    states = {}
-  end
+function M._reset_states()
+  states = {}
 end
 
 return M

@@ -3,24 +3,9 @@ describe("Neural Network Algorithm", function()
   local instance
   local scorer = require("neural-open.scorer")
 
-  local function features_to_input_buf(features)
-    local buf = {}
-    for i, name in ipairs(scorer.FEATURE_NAMES) do
-      buf[i] = features[name] or 0
-    end
-    return buf
-  end
-
   local function create_mock_item(file, features, score)
-    return {
-      file = file,
-      score = score or 0,
-      nos = {
-        input_buf = features_to_input_buf(features),
-        neural_score = score or 0,
-        normalized_path = file,
-      },
-    }
+    local helpers = require("tests.helpers")
+    return helpers.create_nn_mock_item(file, features, score, scorer.FEATURE_NAMES)
   end
 
   -- Standard test configuration used across most tests
@@ -176,164 +161,6 @@ describe("Neural Network Algorithm", function()
       assert.is_true(saved_weights.stats.batches_trained > 0)
     end)
 
-    it("tracks batch training timing statistics", function()
-      local selected_item = create_mock_item("selected.lua", {
-        match = 0.9,
-        virtual_name = 0.8,
-        frecency = 0.7,
-        open = 1.0,
-        alt = 0.0,
-        proximity = 0.6,
-        project = 1.0,
-        recency = 0.5,
-        trigram = 0.4,
-        transition = 0.0,
-      })
-
-      -- Need at least 2 items above selected to meet 50% threshold (batch_size=4, min=2)
-      local ranked_items = {
-        create_mock_item("first.lua", {
-          match = 0.4,
-          virtual_name = 0.3,
-          frecency = 0.2,
-          open = 0.0,
-          alt = 0.0,
-          proximity = 0.1,
-          project = 0.0,
-          recency = 0.0,
-          trigram = 0.0,
-          transition = 0.0,
-        }),
-        create_mock_item("second.lua", {
-          match = 0.3,
-          virtual_name = 0.2,
-          frecency = 0.1,
-          open = 0.0,
-          alt = 0.0,
-          proximity = 0.1,
-          project = 0.0,
-          recency = 0.0,
-          trigram = 0.0,
-          transition = 0.0,
-        }),
-        selected_item,
-      }
-
-      -- Mock weights module
-      local helpers = require("tests.helpers")
-      local weights_mock = helpers.create_weights_mock()
-      package.loaded["neural-open.weights"] = weights_mock.mock
-
-      -- Mock vim.loop.hrtime for timing
-      local mock_time = 0
-      _G.vim = _G.vim or {}
-      _G.vim.loop = _G.vim.loop or {}
-      _G.vim.loop.hrtime = function()
-        mock_time = mock_time + 1e6 -- Simulate 1ms per call
-        return mock_time
-      end
-
-      instance.update_weights(selected_item, ranked_items)
-
-      local saved_weights = weights_mock.get_saved()
-      assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.stats)
-
-      -- Check that timing stats were captured
-      assert.is_not_nil(saved_weights.stats.batch_timings)
-      assert.is_true(#saved_weights.stats.batch_timings > 0)
-
-      -- Check that average timing was calculated
-      assert.is_not_nil(saved_weights.stats.avg_batch_timing)
-      assert.is_not_nil(saved_weights.stats.avg_batch_timing.forward_ms)
-      assert.is_not_nil(saved_weights.stats.avg_batch_timing.backward_ms)
-      assert.is_not_nil(saved_weights.stats.avg_batch_timing.update_ms)
-      assert.is_not_nil(saved_weights.stats.avg_batch_timing.total_ms)
-
-      -- Verify timing values are reasonable (should be > 0)
-      assert.is_true(saved_weights.stats.avg_batch_timing.forward_ms > 0)
-      assert.is_true(saved_weights.stats.avg_batch_timing.backward_ms > 0)
-      assert.is_true(saved_weights.stats.avg_batch_timing.update_ms > 0)
-      assert.is_true(saved_weights.stats.avg_batch_timing.total_ms > 0)
-    end)
-
-    it("builds training history over multiple selections", function()
-      local helpers = require("tests.helpers")
-      local weights_mock = helpers.create_weights_mock()
-      package.loaded["neural-open.weights"] = weights_mock.mock
-
-      -- First selection - with multiple items to create pairs
-      local item1 = create_mock_item("file1.lua", {
-        match = 0.7,
-        virtual_name = 0.0,
-        frecency = 0.3,
-        open = 1.0,
-        alt = 0.0,
-        proximity = 0.5,
-        project = 1.0,
-        recency = 0.2,
-        trigram = 0.4,
-        transition = 0.0,
-      })
-
-      local other1 = create_mock_item("higher1.lua", {
-        match = 0.9,
-        virtual_name = 0.0,
-        frecency = 0.1,
-        open = 0.0,
-        alt = 0.0,
-        proximity = 0.2,
-        project = 1.0,
-        recency = 0.1,
-        trigram = 0.2,
-        transition = 0.0,
-      })
-
-      local items1 = { other1, item1 }
-      instance.update_weights(item1, items1)
-
-      local saved_weights = weights_mock.get_saved()
-      assert.is_not_nil(saved_weights)
-      local history_size_1 = #saved_weights.training_history
-      assert.is_true(history_size_1 > 0, "Should have pairs after first selection")
-
-      -- Second selection - weights will be loaded automatically
-      local item2 = create_mock_item("file2.lua", {
-        match = 0.5,
-        virtual_name = 0.2,
-        frecency = 0.6,
-        open = 0.0,
-        alt = 1.0,
-        proximity = 0.3,
-        project = 1.0,
-        recency = 0.5,
-        trigram = 0.1,
-        transition = 0.0,
-      })
-
-      local items2 = {
-        create_mock_item("other.lua", {
-          match = 0.8,
-          virtual_name = 0.0,
-          frecency = 0.1,
-          open = 0.0,
-          alt = 0.0,
-          proximity = 0.9,
-          project = 1.0,
-          recency = 0.0,
-          trigram = 0.0,
-          transition = 0.0,
-        }),
-        item2,
-      }
-      instance.update_weights(item2, items2)
-
-      saved_weights = weights_mock.get_saved()
-      assert.is_not_nil(saved_weights)
-      local history_size_2 = #saved_weights.training_history
-      assert.is_true(history_size_2 > history_size_1)
-    end)
-
     it("respects history size limit", function()
       -- Initialize with small history size
       local helpers = require("tests.helpers")
@@ -371,80 +198,6 @@ describe("Neural Network Algorithm", function()
       local saved_weights = weights_mock.get_saved()
       assert.is_not_nil(saved_weights)
       assert.is_true(#saved_weights.training_history <= 3)
-    end)
-
-    it("maintains circular buffer of last 10 batch timings", function()
-      -- Initialize with small batch size to ensure many batches
-      local helpers = require("tests.helpers")
-      local config = helpers.create_algorithm_config(
-        "nn",
-        vim.tbl_extend("force", STANDARD_TEST_CONFIG, {
-          batch_size = 1,
-          history_size = 50,
-          batches_per_update = 15, -- Will create 15 batches
-        })
-      )
-      config.algorithm_config.nn.picker_name = "test"
-      instance = nn.create_instance(config.algorithm_config.nn)
-      local weights_mock = helpers.create_weights_mock()
-      package.loaded["neural-open.weights"] = weights_mock.mock
-
-      -- Mock vim.loop.hrtime
-      local mock_time = 0
-      _G.vim = _G.vim or {}
-      _G.vim.loop = _G.vim.loop or {}
-      _G.vim.loop.hrtime = function()
-        mock_time = mock_time + 1e6
-        return mock_time
-      end
-
-      -- Create many training samples to fill history
-      local selected = create_mock_item("selected.lua", {
-        match = 0.9,
-        virtual_name = 0.8,
-        frecency = 0.7,
-        open = 1.0,
-        alt = 0.0,
-        proximity = 0.6,
-        project = 1.0,
-        recency = 0.5,
-        trigram = 0.4,
-        transition = 0.0,
-      })
-
-      local items = { selected }
-
-      -- Add more items to ensure we have enough history for multiple batches
-      for i = 1, 20 do
-        table.insert(
-          items,
-          create_mock_item("file" .. i .. ".lua", {
-            match = math.random() * 0.5,
-            virtual_name = 0.0,
-            frecency = math.random() * 0.3,
-            open = 0.0,
-            alt = 0.0,
-            proximity = math.random(),
-            project = 1.0,
-            recency = math.random() * 0.2,
-            trigram = math.random() * 0.3,
-          })
-        )
-      end
-
-      instance.update_weights(selected, items)
-
-      local saved_weights = weights_mock.get_saved()
-      assert.is_not_nil(saved_weights)
-      assert.is_not_nil(saved_weights.stats)
-      assert.is_not_nil(saved_weights.stats.batch_timings)
-
-      -- Should have at most 10 timings despite processing 15 batches
-      assert.is_true(#saved_weights.stats.batch_timings <= 10)
-
-      -- The average should be computed from available timings
-      assert.is_not_nil(saved_weights.stats.avg_batch_timing)
-      assert.is_true(saved_weights.stats.avg_batch_timing.total_ms > 0)
     end)
 
     it("collects enhanced negative samples for training", function()
@@ -2844,8 +2597,6 @@ describe("Neural Network Algorithm", function()
       }
 
       for _, spec in ipairs(architectures) do
-        -- Enable test helpers before loading module
-        _G._TEST = true
         package.loaded["neural-open.algorithms.nn"] = nil
         package.loaded["neural-open.algorithms.nn_core"] = nil
         nn = require("neural-open.algorithms.nn")
@@ -2882,14 +2633,10 @@ describe("Neural Network Algorithm", function()
             math.abs(fast_score - reference_score)
           )
         )
-
-        _G._TEST = nil
       end
     end)
 
     it("stays consistent after training updates weights", function()
-      -- Enable test helpers before loading module
-      _G._TEST = true
       package.loaded["neural-open.algorithms.nn"] = nil
       package.loaded["neural-open.algorithms.nn_core"] = nil
       nn = require("neural-open.algorithms.nn")
@@ -2954,8 +2701,6 @@ describe("Neural Network Algorithm", function()
           math.abs(fast_score - reference_score)
         )
       )
-
-      _G._TEST = nil
     end)
   end)
 
@@ -3116,6 +2861,269 @@ describe("Neural Network Algorithm", function()
         end
       end
       assert.is_true(found_external, "Should preserve externally added training pair after force-reload")
+    end)
+  end)
+
+  describe("Input-Size Migration", function()
+    local nn_migration, nn_core_migration, weights_module, migration_instance
+
+    before_each(function()
+      -- Clear module cache
+      package.loaded["neural-open.algorithms.nn"] = nil
+      package.loaded["neural-open.algorithms.nn_core"] = nil
+      package.loaded["neural-open.algorithms.nn_training"] = nil
+      package.loaded["neural-open.weights"] = nil
+
+      -- Mock vim.notify to capture migration messages
+      _G.last_notify_message = nil
+      _G._original_vim_notify = vim.notify
+      vim.notify = function(msg, _level)
+        _G.last_notify_message = msg
+      end
+
+      -- Set up weights mock
+      weights_module = {
+        saved_weights = nil,
+        get_weights = function(_algo)
+          return weights_module.saved_weights
+        end,
+        save_weights = function(_algo, data)
+          weights_module.saved_weights = data
+        end,
+      }
+      package.loaded["neural-open.weights"] = weights_module
+
+      nn_core_migration = require("neural-open.algorithms.nn_core")
+      nn_migration = require("neural-open.algorithms.nn")
+    end)
+
+    after_each(function()
+      vim.notify = _G._original_vim_notify
+      _G.last_notify_message = nil
+    end)
+
+    it("migrates 10-input layer to 11-input layer and backfills training history", function()
+      -- Simulate saved weights with 10-input first layer (old feature count)
+      local original_weights_layer1 = {}
+      for i = 1, 10 do
+        original_weights_layer1[i] = {}
+        for j = 1, 4 do
+          original_weights_layer1[i][j] = 0.1 * i + 0.01 * j
+        end
+      end
+      local weights_layer2 = { { 0.5 }, { 0.6 }, { 0.7 }, { 0.8 } }
+
+      weights_module.saved_weights = {
+        nn = {
+          version = "2.0-hinge",
+          network = {
+            weights = { original_weights_layer1, weights_layer2 },
+            biases = { { { 0.1, 0.2, 0.3, 0.4 } }, { { 0.05 } } },
+            gammas = {},
+            betas = {},
+          },
+          training_history = {
+            {
+              -- Non-current file: trigram=0.5 (idx 9), proximity=0.3 (idx 6) -> not_current=1.0
+              positive_input = { { 0.8, 0.7, 0.6, 1, 0, 0.3, 1, 0.9, 0.5, 0.2 } },
+              negative_input = { { 0.3, 0.2, 0.1, 0, 0, 0.1, 1, 0.5, 0.3, 0.1 } },
+              positive_file = "src/app.lua",
+              negative_file = "src/utils.lua",
+            },
+            {
+              -- Current file heuristic: trigram=0.99 (idx 9), proximity=1.0 (idx 6) -> not_current=0.0
+              positive_input = { { 0.9, 0.8, 0.7, 1, 1, 1.0, 1, 0.95, 0.99, 0.4 } },
+              negative_input = { { 0.4, 0.3, 0.2, 0, 0, 0.5, 0, 0.6, 0.2, 0.0 } },
+              positive_file = "src/current.lua",
+              negative_file = "src/other.lua",
+            },
+          },
+          stats = {
+            samples_processed = 50,
+            batches_trained = 5,
+            loss_history = { 0.3, 0.2 },
+          },
+          optimizer_type = "sgd",
+        },
+      }
+
+      _G.last_notify_message = nil
+      migration_instance = nn_migration.create_instance({
+        picker_name = "test",
+        architecture = { 11, 4, 1 },
+        optimizer = "sgd",
+        learning_rate = 0.01,
+        batch_size = 32,
+        history_size = 100,
+        batches_per_update = 1,
+        weight_decay = 0.0001,
+        warmup_steps = 0,
+        warmup_start_factor = 0.1,
+        adam_beta1 = 0.9,
+        adam_beta2 = 0.999,
+        adam_epsilon = 1e-8,
+        match_dropout = 0,
+        margin = 1.0,
+        dropout_rates = { 0 },
+      })
+
+      -- Trigger weight loading (input-size migration happens here)
+      local score = migration_instance.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
+      assert.is_number(score)
+
+      -- Verify notification about input-size migration
+      assert.is_not_nil(_G.last_notify_message)
+      assert.is_true(
+        string.find(_G.last_notify_message, "Migrated NN input layer from 10 to 11") ~= nil,
+        "Expected input-size migration notification, got: " .. tostring(_G.last_notify_message)
+      )
+
+      -- Verify first layer now has 11 rows
+      local weights = migration_instance._get_weights()
+      assert.is_not_nil(weights)
+      assert.is_not_nil(weights[1])
+      assert.equals(11, #weights[1])
+
+      -- Verify original 10 rows are preserved
+      for i = 1, 10 do
+        for j = 1, 4 do
+          assert.equals(
+            original_weights_layer1[i][j],
+            weights[1][i][j],
+            string.format("Weight[1][%d][%d] should be preserved", i, j)
+          )
+        end
+      end
+
+      -- Verify 11th row was added with 4 values
+      assert.equals(4, #weights[1][11])
+
+      -- Verify second layer was not modified
+      assert.equals(4, #weights[2])
+
+      -- Verify training history was backfilled with 11 elements
+      local history = migration_instance._get_training_history()
+      assert.equals(2, #history)
+
+      -- First pair: non-current file (trigram=0.5, proximity=0.3) -> not_current=1.0
+      assert.equals(11, #history[1].positive_input[1])
+      assert.equals(1.0, history[1].positive_input[1][11])
+      assert.equals(11, #history[1].negative_input[1])
+      assert.equals(1.0, history[1].negative_input[1][11])
+
+      -- Second pair: positive is current file (trigram=0.99, proximity=1.0) -> not_current=0.0
+      assert.equals(11, #history[2].positive_input[1])
+      assert.equals(0.0, history[2].positive_input[1][11])
+      -- Negative is not current file -> not_current=1.0
+      assert.equals(11, #history[2].negative_input[1])
+      assert.equals(1.0, history[2].negative_input[1][11])
+    end)
+
+    it("resets AdamW first-layer optimizer moments after input-size migration", function()
+      local weights_layer1 = {}
+      for i = 1, 10 do
+        weights_layer1[i] = {}
+        for j = 1, 4 do
+          weights_layer1[i][j] = 0.1 * i + 0.01 * j
+        end
+      end
+      local weights_layer2 = { { 0.5 }, { 0.6 }, { 0.7 }, { 0.8 } }
+
+      -- Create 10x4 optimizer moments (old dimension) with non-zero values
+      local old_first_weights = nn_core_migration.zeros(10, 4)
+      for i = 1, 10 do
+        for j = 1, 4 do
+          old_first_weights[i][j] = 0.5
+        end
+      end
+      local old_second_weights = nn_core_migration.zeros(10, 4)
+      for i = 1, 10 do
+        for j = 1, 4 do
+          old_second_weights[i][j] = 0.25
+        end
+      end
+
+      weights_module.saved_weights = {
+        nn = {
+          version = "2.0-hinge",
+          network = {
+            weights = { vim.deepcopy(weights_layer1), weights_layer2 },
+            biases = { { { 0.1, 0.2, 0.3, 0.4 } }, { { 0.05 } } },
+            gammas = {},
+            betas = {},
+          },
+          training_history = {},
+          stats = { samples_processed = 10, batches_trained = 2, loss_history = {} },
+          optimizer_type = "adamw",
+          optimizer_state = {
+            timestep = 50,
+            moments = {
+              first = {
+                weights = { vim.deepcopy(old_first_weights), nn_core_migration.zeros(4, 1) },
+                biases = { nn_core_migration.zeros(1, 4), nn_core_migration.zeros(1, 1) },
+                gammas = {},
+                betas = {},
+              },
+              second = {
+                weights = { vim.deepcopy(old_second_weights), nn_core_migration.zeros(4, 1) },
+                biases = { nn_core_migration.zeros(1, 4), nn_core_migration.zeros(1, 1) },
+                gammas = {},
+                betas = {},
+              },
+            },
+          },
+        },
+      }
+
+      _G.last_notify_message = nil
+      migration_instance = nn_migration.create_instance({
+        picker_name = "test",
+        architecture = { 11, 4, 1 },
+        optimizer = "adamw",
+        learning_rate = 0.001,
+        batch_size = 32,
+        history_size = 100,
+        batches_per_update = 1,
+        weight_decay = 0.0001,
+        warmup_steps = 0,
+        warmup_start_factor = 0.1,
+        adam_beta1 = 0.9,
+        adam_beta2 = 0.999,
+        adam_epsilon = 1e-8,
+        match_dropout = 0,
+        margin = 1.0,
+        dropout_rates = { 0 },
+      })
+
+      -- Trigger weight loading
+      local score = migration_instance.calculate_score({ 0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 0.0, 1.0 })
+      assert.is_number(score)
+
+      -- Verify first-layer moments were reset to 11x4
+      local opt = migration_instance._get_optimizer_state()
+      assert.is_not_nil(opt)
+      assert.is_not_nil(opt.moments)
+
+      local m1_w1 = opt.moments.first.weights[1]
+      assert.equals(11, #m1_w1, "First moment weights[1] should have 11 rows")
+      assert.equals(4, #m1_w1[1], "First moment weights[1] should have 4 cols")
+      -- All values should be zero (reset)
+      for i = 1, 11 do
+        for j = 1, 4 do
+          assert.equals(0, m1_w1[i][j], string.format("first.weights[1][%d][%d] should be 0", i, j))
+        end
+      end
+
+      local m2_w1 = opt.moments.second.weights[1]
+      assert.equals(11, #m2_w1, "Second moment weights[1] should have 11 rows")
+      assert.equals(4, #m2_w1[1], "Second moment weights[1] should have 4 cols")
+
+      -- Second layer moments should be untouched (still 4x1)
+      assert.equals(4, #opt.moments.first.weights[2])
+      assert.equals(1, #opt.moments.first.weights[2][1])
+
+      -- Timestep should be preserved
+      assert.equals(50, opt.timestep)
     end)
   end)
 end)

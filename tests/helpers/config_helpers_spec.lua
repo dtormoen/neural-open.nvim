@@ -2,7 +2,7 @@
 describe("config helpers", function()
   local helpers = require("tests.helpers")
 
-  -- WORKAROUND: Some other tests (nn_spec.lua, nn_hinge_spec.lua) replace vim.tbl_deep_extend
+  -- WORKAROUND: Some other tests (nn_spec.lua) replace vim.tbl_deep_extend
   -- with vim.tbl_extend globally, which breaks deep merging for all subsequent tests.
   -- We detect and fix this pollution here.
   if _G.vim.tbl_deep_extend == _G.vim.tbl_extend then

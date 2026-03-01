@@ -85,6 +85,7 @@ function M.clear_plugin_modules()
     "neural-open.algorithms.naive",
     "neural-open.algorithms.nn",
     "neural-open.algorithms.nn_core",
+    "neural-open.algorithms.nn_training",
     "neural-open.recent",
     "neural-open.frecency",
     "neural-open.transitions",
@@ -272,6 +273,38 @@ function M.create_weights_mock()
     get_saved = function()
       return saved_weights
     end,
+  }
+end
+
+-- Convert named features to a flat input buffer using canonical feature ordering
+-- Use for: NN algorithm tests that need to create input buffers from named features
+---@param features table<string, number> Named feature values (e.g., {match=0.5, frecency=0.3})
+---@param feature_names string[] Feature name ordering (e.g., scorer.FEATURE_NAMES)
+---@return number[] Flat input buffer
+function M.features_to_input_buf(features, feature_names)
+  local buf = {}
+  for i, name in ipairs(feature_names) do
+    buf[i] = features[name] or 0
+  end
+  return buf
+end
+
+-- Create a mock item for NN algorithm tests
+-- Use for: Creating test items with proper nos structure for update_weights/calculate_score
+---@param file string File path
+---@param features table<string, number>? Named feature values (nil = all zeros)
+---@param score number? Neural score (default 0)
+---@param feature_names string[] Feature name ordering
+---@return table Mock item
+function M.create_nn_mock_item(file, features, score, feature_names)
+  return {
+    file = file,
+    score = score or 0,
+    nos = {
+      input_buf = M.features_to_input_buf(features or {}, feature_names),
+      neural_score = score or 0,
+      normalized_path = file,
+    },
   }
 end
 

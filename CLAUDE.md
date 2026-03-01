@@ -31,6 +31,7 @@ Results are documented in `docs/benchmark-results.md`.
 - **`item_scorer.lua`**: 8-feature scoring pipeline for non-file item pickers. Owns `ITEM_FEATURE_NAMES` (canonical feature ordering: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected, transition), normalization functions, and allocation-free `on_match_handler`. Parallel to `scorer.lua`
 - **`item_source.lua`**: Context capture and per-item transform for non-file item pickers. Loads item tracking data, initializes algorithm via `registry.get_algorithm_for_picker`, computes static features. Parallel to `source.lua`
 - **`db.lua`**: Per-picker JSON file storage with atomic writes. Each picker uses two files: `<weights_dir>/<picker_name>.json` (model weights) and `<weights_dir>/<picker_name>.tracking.json` (tracking data: recency list, transition frecency, item tracking). Auto-migrates legacy single-file layout on first `get_tracking()` call
+- **`algorithms/nn_training.lua`**: Training pipeline functions extracted from `nn.lua`. Owns `features_to_input()` (input buffer to matrix conversion with match dropout), `input_buf_to_features()` (debug display), `construct_batches()` (batch assembly from current pairs + history), and `train_on_batches()` (forward/backward/update loop with timing and accuracy tracking). Lazy-required by `nn.lua` at weight-update time; not on the inference hot path
 - **`types.lua`**: LuaCATS type definitions for the `nos` field structure and other plugin types
 
 ### Data Structure
@@ -183,6 +184,14 @@ When writing tests, follow DRY principles by reusing configuration from `init.lu
 3. `create_algorithm_config(algorithm_name, overrides)` - Creates config with algorithm-specific overrides
    - Use for: Algorithm tests that only need to modify one algorithm's settings (most common)
    - Example: Testing classic algorithm with custom learning rate
+
+4. `features_to_input_buf(features, feature_names)` - Converts named features to a flat input buffer
+   - Use for: NN algorithm tests that need to create input buffers from named features
+   - Example: `helpers.features_to_input_buf({match=0.5, frecency=0.3}, scorer.FEATURE_NAMES)`
+
+5. `create_nn_mock_item(file, features, score, feature_names)` - Creates a mock item with proper nos structure
+   - Use for: Creating test items for `update_weights`/`calculate_score` tests
+   - Example: `helpers.create_nn_mock_item("test.lua", {match=0.8}, 50, scorer.FEATURE_NAMES)`
 
 **Patterns by Test Type:**
 

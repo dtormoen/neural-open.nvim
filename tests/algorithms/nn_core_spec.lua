@@ -402,4 +402,356 @@ describe("Neural Network Core", function()
       assert.equals(5, clipped[3][1][2])
     end)
   end)
+
+  describe("Batch Operations", function()
+    it("computes mean along columns correctly", function()
+      local matrix = {
+        { 1, 2, 3 },
+        { 4, 5, 6 },
+        { 7, 8, 9 },
+      }
+      local mean = nn_core.mean(matrix, 0)
+      assert.are.equal(3, #mean[1])
+      assert.are.near(4, mean[1][1], 0.001)
+      assert.are.near(5, mean[1][2], 0.001)
+      assert.are.near(6, mean[1][3], 0.001)
+    end)
+
+    it("computes variance along columns correctly", function()
+      local matrix = {
+        { 1, 2, 3 },
+        { 4, 5, 6 },
+        { 7, 8, 9 },
+      }
+      local mean = nn_core.mean(matrix, 0)
+      local var = nn_core.variance(matrix, mean, 0)
+      assert.are.equal(3, #var[1])
+      assert.are.near(6, var[1][1], 0.001)
+      assert.are.near(6, var[1][2], 0.001)
+      assert.are.near(6, var[1][3], 0.001)
+    end)
+
+    it("creates ones vector correctly", function()
+      local ones = nn_core.ones(5)
+      assert.are.equal(1, #ones)
+      assert.are.equal(5, #ones[1])
+      for i = 1, 5 do
+        assert.are.equal(1, ones[1][i])
+      end
+    end)
+  end)
+
+  describe("Batch Normalization", function()
+    it("normalizes batch correctly", function()
+      local batch = {
+        { 1, 2 },
+        { 3, 4 },
+        { 5, 6 },
+      }
+      local gamma = { { 1, 1 } }
+      local beta = { { 0, 0 } }
+
+      local normalized, _, _ = nn_core.batch_normalize(batch, gamma, beta)
+
+      assert.are.equal(3, #normalized)
+      assert.are.equal(2, #normalized[1])
+
+      local norm_mean = nn_core.mean(normalized, 0)
+      assert.are.near(0, norm_mean[1][1], 0.001)
+      assert.are.near(0, norm_mean[1][2], 0.001)
+
+      local norm_var = nn_core.variance(normalized, norm_mean, 0)
+      assert.are.near(1, norm_var[1][1], 0.001)
+      assert.are.near(1, norm_var[1][2], 0.001)
+    end)
+
+    it("applies scale and shift correctly", function()
+      local batch = {
+        { 1, 2 },
+        { 3, 4 },
+        { 5, 6 },
+      }
+      local gamma = { { 2, 3 } }
+      local beta = { { 0.5, -0.5 } }
+
+      local normalized = nn_core.batch_normalize(batch, gamma, beta)
+
+      assert.are.equal(3, #normalized)
+      assert.are.equal(2, #normalized[1])
+
+      local mean = nn_core.mean(normalized, 0)
+      assert.are.near(0.5, mean[1][1], 0.001)
+      assert.are.near(-0.5, mean[1][2], 0.001)
+    end)
+
+    it("handles backward pass correctly", function()
+      local batch = {
+        { 1, 2, 3 },
+        { 4, 5, 6 },
+      }
+      local gamma = { { 1, 1, 1 } }
+      local beta = { { 0, 0, 0 } }
+
+      local _, mean, var = nn_core.batch_normalize(batch, gamma, beta)
+
+      local grad_out = {
+        { 0.1, 0.2, 0.3 },
+        { 0.4, 0.5, 0.6 },
+      }
+
+      local grad_input, grad_gamma, grad_beta = nn_core.batch_normalize_backward(grad_out, batch, gamma, mean, var)
+
+      assert.are.equal(2, #grad_input)
+      assert.are.equal(3, #grad_input[1])
+      assert.are.equal(1, #grad_gamma)
+      assert.are.equal(3, #grad_gamma[1])
+      assert.are.equal(1, #grad_beta)
+      assert.are.equal(3, #grad_beta[1])
+
+      assert.are.near(0.5, grad_beta[1][1], 0.001)
+      assert.are.near(0.7, grad_beta[1][2], 0.001)
+      assert.are.near(0.9, grad_beta[1][3], 0.001)
+    end)
+
+    it("handles binary features with numerical stability", function()
+      local batch = {
+        { 0, 1, 0, 1, 0 },
+        { 1, 1, 0, 0, 1 },
+        { 0, 1, 1, 1, 0 },
+        { 1, 0, 0, 1, 1 },
+      }
+      local gamma = { { 1, 1, 1, 1, 1 } }
+      local beta = { { 0, 0, 0, 0, 0 } }
+
+      local normalized, _, var = nn_core.batch_normalize(batch, gamma, beta)
+
+      for j = 1, #var[1] do
+        assert.is_true(var[1][j] >= 1e-5, "Variance should be clamped to prevent numerical issues")
+      end
+
+      for i = 1, #normalized do
+        for j = 1, #normalized[i] do
+          assert.is_true(normalized[i][j] == normalized[i][j], "NaN detected in normalized output")
+          assert.is_true(math.abs(normalized[i][j]) < 1e10, "Infinite or very large value detected")
+        end
+      end
+    end)
+
+    it("handles near-zero variance correctly", function()
+      local batch = {
+        { 1, 2, 5 },
+        { 1, 3, 5 },
+        { 1, 4, 5 },
+      }
+      local gamma = { { 1, 1, 1 } }
+      local beta = { { 0, 0, 0 } }
+
+      local normalized, _, var = nn_core.batch_normalize(batch, gamma, beta)
+
+      assert.is_true(var[1][1] >= 1e-5, "Zero variance should be clamped")
+      assert.is_true(var[1][3] >= 1e-5, "Zero variance should be clamped")
+
+      for i = 1, #normalized do
+        for j = 1, #normalized[i] do
+          assert.is_true(normalized[i][j] == normalized[i][j], "NaN detected")
+          assert.is_true(math.abs(normalized[i][j]) < 1e10, "Infinite value detected")
+        end
+      end
+    end)
+  end)
+
+  describe("Batch Forward Pass", function()
+    it("processes batches through the network", function()
+      local architecture = { 2, 3, 1 }
+      local weights, biases, gammas, betas = nn_core.init_network(architecture)
+
+      local batch = {
+        { 0.5, 0.3 },
+        { 0.7, 0.2 },
+        { 0.1, 0.9 },
+      }
+
+      local activations = { batch }
+
+      local z1 = nn_core.matmul(batch, weights[1])
+      z1 = nn_core.add_bias(z1, biases[1])
+
+      local z1_norm = nn_core.batch_normalize(z1, gammas[1], betas[1])
+
+      local a1 = nn_core.element_wise(z1_norm, nn_core.relu)
+      table.insert(activations, a1)
+
+      local z2 = nn_core.matmul(a1, weights[2])
+      z2 = nn_core.add_bias(z2, biases[2])
+      local a2 = nn_core.element_wise(z2, nn_core.sigmoid)
+      table.insert(activations, a2)
+
+      assert.are.equal(3, #a2)
+      assert.are.equal(1, #a2[1])
+
+      for i = 1, 3 do
+        assert.is_true(a2[i][1] >= 0 and a2[i][1] <= 1)
+      end
+    end)
+  end)
+
+  describe("Numerical Gradient Checking", function()
+    it("verifies batch norm gradients numerically", function()
+      local batch = {
+        { 1.0, 2.0 },
+        { 3.0, 1.0 },
+        { 2.0, 3.0 },
+      }
+      local gamma = { { 1.5, 0.8 } }
+      local beta = { { 0.2, -0.3 } }
+      local epsilon = 1e-8
+
+      local output, mean, var = nn_core.batch_normalize(batch, gamma, beta, epsilon)
+
+      local function compute_loss(normalized)
+        local loss = 0
+        for i = 1, #normalized do
+          for j = 1, #normalized[i] do
+            loss = loss + normalized[i][j] * normalized[i][j]
+          end
+        end
+        return loss
+      end
+
+      local loss = compute_loss(output)
+
+      local grad_out = {}
+      for i = 1, #output do
+        grad_out[i] = {}
+        for j = 1, #output[i] do
+          grad_out[i][j] = 2 * output[i][j]
+        end
+      end
+
+      local _, grad_gamma, _ = nn_core.batch_normalize_backward(grad_out, batch, gamma, mean, var, epsilon)
+
+      local h = 1e-5
+      gamma[1][1] = gamma[1][1] + h
+      local output_plus = nn_core.batch_normalize(batch, gamma, beta, epsilon)
+      local loss_plus = compute_loss(output_plus)
+      gamma[1][1] = gamma[1][1] - h
+
+      local numerical_grad_gamma = (loss_plus - loss) / h
+
+      assert.are.near(numerical_grad_gamma, grad_gamma[1][1], 0.01)
+    end)
+  end)
+
+  describe("pairwise_hinge_loss", function()
+    it("returns zero when margin is satisfied", function()
+      local loss = nn_core.pairwise_hinge_loss(0.8, 0.3, 0.5)
+      assert.equals(0, loss)
+    end)
+
+    it("returns positive loss when margin is violated", function()
+      local loss = nn_core.pairwise_hinge_loss(0.6, 0.5, 0.5)
+      assert.is_true(math.abs(loss - 0.4) < 0.0001)
+    end)
+
+    it("returns maximum penalty when negative ranks higher", function()
+      local loss = nn_core.pairwise_hinge_loss(0.3, 0.8, 1.0)
+      assert.is_true(math.abs(loss - 1.5) < 0.0001)
+    end)
+
+    it("handles equal scores correctly", function()
+      local loss = nn_core.pairwise_hinge_loss(0.5, 0.5, 1.0)
+      assert.is_true(math.abs(loss - 1.0) < 0.0001)
+    end)
+
+    it("handles edge cases with extreme values", function()
+      local loss1 = nn_core.pairwise_hinge_loss(1.0, 1.0, 1.0)
+      assert.is_true(math.abs(loss1 - 1.0) < 0.0001)
+
+      local loss2 = nn_core.pairwise_hinge_loss(0.0, 0.0, 1.0)
+      assert.is_true(math.abs(loss2 - 1.0) < 0.0001)
+
+      local loss3 = nn_core.pairwise_hinge_loss(1.0, 0.0, 1.0)
+      assert.equals(0, loss3)
+    end)
+
+    it("works with different margin values", function()
+      local loss1 = nn_core.pairwise_hinge_loss(0.8, 0.3, 0.3)
+      assert.equals(0, loss1)
+
+      local loss2 = nn_core.pairwise_hinge_loss(0.8, 0.3, 0.7)
+      assert.is_true(math.abs(loss2 - 0.2) < 0.0001)
+    end)
+
+    describe("Gradient Correctness", function()
+      it("has zero gradient when margin is satisfied", function()
+        local loss = nn_core.pairwise_hinge_loss(0.9, 0.2, 0.5)
+        assert.equals(0, loss)
+      end)
+
+      it("has non-zero gradient when margin is violated", function()
+        local loss = nn_core.pairwise_hinge_loss(0.6, 0.5, 0.5)
+        assert.is_true(loss > 0)
+      end)
+
+      it("gradient magnitude is constant when margin is violated", function()
+        local margin = 1.0
+
+        local loss1 = nn_core.pairwise_hinge_loss(0.6, 0.1, margin)
+        assert.is_true(math.abs(loss1 - 0.5) < 0.0001)
+
+        local loss2 = nn_core.pairwise_hinge_loss(0.4, 0.1, margin)
+        assert.is_true(math.abs(loss2 - 0.7) < 0.0001)
+
+        local loss_diff = loss2 - loss1
+        local expected_diff = 0.2
+        assert.is_true(math.abs(loss_diff - expected_diff) < 0.0001)
+      end)
+    end)
+
+    describe("Edge Case Handling", function()
+      it("handles very small score differences", function()
+        local loss = nn_core.pairwise_hinge_loss(0.500001, 0.5, 1.0)
+        assert.is_true(math.abs(loss - 0.999999) < 0.0001)
+      end)
+
+      it("handles very large margins", function()
+        local loss = nn_core.pairwise_hinge_loss(0.9, 0.1, 10.0)
+        assert.is_true(math.abs(loss - 9.2) < 0.0001)
+      end)
+
+      it("handles zero margin", function()
+        local loss1 = nn_core.pairwise_hinge_loss(0.6, 0.5, 0.0)
+        assert.equals(0, loss1)
+
+        local loss2 = nn_core.pairwise_hinge_loss(0.5, 0.6, 0.0)
+        assert.is_true(math.abs(loss2 - 0.1) < 0.0001)
+      end)
+
+      it("handles negative margins (not recommended but should work)", function()
+        local loss = nn_core.pairwise_hinge_loss(0.5, 0.5, -0.5)
+        assert.equals(0, loss)
+      end)
+    end)
+
+    it("loss equals max(0, margin - diff) for representative cases", function()
+      local cases = {
+        { 0.9, 0.2, 1.5 },
+        { 0.3, 0.8, 0.5 },
+        { 0.5, 0.5, 1.0 },
+        { 0.7, 0.1, 0.3 },
+        { 0.1, 0.9, 2.0 },
+      }
+
+      for _, case in ipairs(cases) do
+        local score_pos, score_neg, margin = case[1], case[2], case[3]
+        local loss = nn_core.pairwise_hinge_loss(score_pos, score_neg, margin)
+        local expected = math.max(0, margin - (score_pos - score_neg))
+
+        assert.is_true(
+          math.abs(loss - expected) < 0.0001,
+          string.format("Loss should equal max(0, margin - diff): expected=%.4f, got=%.4f", expected, loss)
+        )
+      end
+    end)
+  end)
 end)
