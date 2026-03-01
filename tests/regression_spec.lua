@@ -76,10 +76,26 @@ local function build_match_lookup(items, phase_match_scores)
   return lookup
 end
 
+--- Map item_id-keyed fixture match scores to item.text for the mock matcher.
+---@param items table[] Transformed items with nos.item_id populated
+---@param phase_match_scores table<string, number> item_id → match score
+---@return table<string, number>
+local function build_item_match_lookup(items, phase_match_scores)
+  local lookup = {}
+  for _, item in ipairs(items) do
+    local score = phase_match_scores[item.nos.item_id]
+    if score then
+      lookup[item.text] = score
+    end
+  end
+  return lookup
+end
+
 local ALGORITHM_NAMES = { "nn", "classic", "naive" }
 
 describe("scoring pipeline regression", function()
   local scorer, source, algorithms, neural_open
+  local item_scorer, item_source, item_algorithms
 
   if CAPTURE_MODE then
     teardown(function()
@@ -130,6 +146,26 @@ describe("scoring pipeline regression", function()
     naive.init(neural_open.config.algorithm_config.naive or {})
     naive.load_weights()
     algorithms.naive = naive
+
+    -- Initialize item picker algorithms (8-feature pipeline)
+    item_scorer = require("neural-open.item_scorer")
+    item_source = require("neural-open.item_source")
+    item_algorithms = {}
+
+    local item_nn_config = vim.deepcopy(neural_open.config.item_algorithm_config.nn)
+    item_nn_config.picker_name = "test_item"
+    item_nn_config.feature_names = item_scorer.ITEM_FEATURE_NAMES
+    local item_nn_instance = nn.create_instance(item_nn_config)
+    item_nn_instance.load_weights()
+    item_algorithms.nn = item_nn_instance
+
+    local item_classic_config = vim.deepcopy(neural_open.config.item_algorithm_config.classic)
+    item_classic_config.picker_name = "test_item"
+    item_classic_config.feature_names = item_scorer.ITEM_FEATURE_NAMES
+    item_algorithms.classic = classic.create_instance(item_classic_config)
+    item_algorithms.classic.load_weights()
+
+    item_algorithms.naive = naive
   end)
 
   for _, test_case in ipairs(fixture.test_cases) do
@@ -257,6 +293,123 @@ describe("scoring pipeline regression", function()
                   string.format(
                     "Score mismatch for %s [%s] in phase '%s': expected %.6f, got %.6f (diff %.6f)",
                     path,
+                    algo_name,
+                    phase.name,
+                    expected,
+                    item.score,
+                    math.abs(expected - item.score)
+                  )
+                )
+              end
+            end
+          end)
+        end
+      end
+    end)
+  end
+
+  for _, test_case in ipairs(fixture.item_test_cases) do
+    describe(test_case.name, function()
+      local items
+      local nos_ctx
+
+      before_each(function()
+        -- Build the NosItemContext from fixture
+        nos_ctx = {
+          cwd = test_case.context.cwd,
+          algorithm = item_algorithms.nn,
+          tracking_data = test_case.context.tracking_data or {},
+          picker_name = test_case.picker_name,
+          transition_scores = test_case.context.transition_scores or {},
+        }
+
+        -- Build a Snacks-like picker context
+        local picker_ctx = {
+          meta = {
+            nos_ctx = nos_ctx,
+            done = {},
+          },
+        }
+
+        -- Create the transform function
+        local transform = item_source.create_item_transform(test_case.picker_name, neural_open.config, item_scorer)
+
+        -- Transform each item
+        items = {}
+        for _, item_def in ipairs(test_case.items) do
+          local item = {
+            text = item_def.text,
+            idx = #items + 1,
+            score = 0,
+          }
+          if item_def.value then
+            item.value = item_def.value
+          end
+
+          local result = transform(item, picker_ctx)
+          if result and result ~= false then
+            table.insert(items, result)
+          end
+        end
+      end)
+
+      it("produces expected item identities", function()
+        for i, item_def in ipairs(test_case.items) do
+          local item = items[i]
+          assert.is_not_nil(item, "Item " .. i .. " (" .. item_def.text .. ") was filtered out by transform")
+          assert.equals(item_def.expected_item_id, item.nos.item_id, "item_id mismatch for " .. item_def.text)
+        end
+      end)
+
+      for _, phase in ipairs(test_case.phases) do
+        for _, algo_name in ipairs(ALGORITHM_NAMES) do
+          it(phase.name .. " [" .. algo_name .. "] produces expected item scores", function()
+            -- Swap the algorithm on the shared context
+            nos_ctx.algorithm = item_algorithms[algo_name]
+
+            -- Build mock matcher from phase match_scores
+            local match_lookup = build_item_match_lookup(items, phase.match_scores or {})
+            local mock_matcher = create_mock_matcher(phase.query, match_lookup)
+
+            -- Run on_match_handler for each item
+            for _, item in ipairs(items) do
+              item_scorer.on_match_handler(mock_matcher, item)
+            end
+
+            -- Ensure nested table exists for this algorithm
+            phase.expected_scores[algo_name] = phase.expected_scores[algo_name] or {}
+            local algo_expected = phase.expected_scores[algo_name]
+
+            -- Check scores
+            for _, item in ipairs(items) do
+              local item_id = item.nos.item_id
+              local expected = algo_expected[item_id]
+
+              if CAPTURE_MODE then
+                local rounded = round6(item.score)
+                algo_expected[item_id] = rounded
+                print(
+                  string.format(
+                    "CAPTURE [%s] [%s] [%s] %s = %.6f",
+                    test_case.name,
+                    phase.name,
+                    algo_name,
+                    item_id,
+                    rounded
+                  )
+                )
+              else
+                assert.is_not_nil(
+                  expected,
+                  "No expected score for " .. item_id .. " [" .. algo_name .. "] in phase '" .. phase.name .. "'"
+                )
+                assert.near(
+                  expected,
+                  item.score,
+                  TOLERANCE,
+                  string.format(
+                    "Score mismatch for %s [%s] in phase '%s': expected %.6f, got %.6f (diff %.6f)",
+                    item_id,
                     algo_name,
                     phase.name,
                     expected,

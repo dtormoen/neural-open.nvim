@@ -164,8 +164,15 @@ The project uses Busted for testing with comprehensive test coverage including:
 - End-to-end multi-picker pipeline validation (item/file transforms, scoring correctness, weight learning isolation, auto-migration)
 - Per-picker state isolation regression tests (NN architecture independence, classic weight independence, weight save routing per picker_name)
 - Item picker debug preview validation (correct 8-feature names, type-specific sections, file-only sections suppressed, item transition sections displayed)
+- Scoring pipeline regression tests for both file pickers (11-feature) and item pickers (8-feature), driven by `tests/fixtures/regression_test_cases.json` with score capture mode
 
 **Test Isolation**: Tests run in complete isolation using temporary XDG directories to protect your real Neovim environment. Always use `just test` to ensure proper isolation.
+
+**Regression Capture**: After intentional changes to the scoring pipeline that alter expected scores, re-capture expected values:
+```
+REGRESSION_CAPTURE=1 just test tests/regression_spec.lua
+```
+Commit the updated `tests/fixtures/regression_test_cases.json` in a focused commit so the score shift is easy to review.
 
 ### Test Configuration Best Practices
 

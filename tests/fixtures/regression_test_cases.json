@@ -1,5 +1,257 @@
 {
   "_comment": "Regression test cases for the scoring pipeline. Changes that break these tests either need a fix, or when scores legitimately change, the update should be isolated in a separate commit scoped to the smallest possible change so it's easy to review what caused the score shift.",
+  "item_test_cases": [
+    {
+      "context": {
+        "cwd": "/project",
+        "tracking_data": {
+          "cwd_frecency": {
+            "build": 8,
+            "test": 3
+          },
+          "cwd_recency_rank": {
+            "build": 1,
+            "test": 2
+          },
+          "frecency": {
+            "build": 10,
+            "clean": 1,
+            "test": 5
+          },
+          "last_cwd_selected": "build",
+          "last_selected": "build",
+          "recency_rank": {
+            "build": 1,
+            "test": 2
+          }
+        },
+        "transition_scores": {
+          "test": 0.3
+        }
+      },
+      "items": [
+        {
+          "expected_item_id": "build",
+          "text": "build"
+        },
+        {
+          "expected_item_id": "test",
+          "text": "test"
+        },
+        {
+          "expected_item_id": "clean",
+          "text": "clean"
+        },
+        {
+          "expected_item_id": "deploy",
+          "text": "deploy",
+          "value": "deploy"
+        }
+      ],
+      "name": "Recipe picker with frecency and transitions",
+      "phases": [
+        {
+          "expected_scores": {
+            "classic": {
+              "build": 35.944444,
+              "clean": 5.888889,
+              "deploy": 3.875,
+              "test": 33.102228
+            },
+            "naive": {
+              "build": 3.722222,
+              "clean": 1.777778,
+              "deploy": 1.625,
+              "test": 4.651628
+            },
+            "nn": {
+              "build": 41.125427,
+              "clean": 37.207566,
+              "deploy": 34.148138,
+              "test": 49.818824
+            }
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        },
+        {
+          "expected_scores": {
+            "classic": {
+              "build": 119.760717,
+              "clean": 5.888889,
+              "deploy": 3.875,
+              "test": 33.102228
+            },
+            "naive": {
+              "build": 4.32091,
+              "clean": 1.777778,
+              "deploy": 1.625,
+              "test": 4.651628
+            },
+            "nn": {
+              "build": 45.432428,
+              "clean": 37.207566,
+              "deploy": 34.148138,
+              "test": 49.818824
+            }
+          },
+          "match_scores": {
+            "build": 120
+          },
+          "name": "search for 'bu'",
+          "query": "bu"
+        }
+      ],
+      "picker_name": "test_recipes"
+    },
+    {
+      "context": {
+        "cwd": "/workspace",
+        "tracking_data": {
+          "cwd_frecency": {
+            "build": 4,
+            "format": 10,
+            "lint": 1
+          },
+          "cwd_recency_rank": {
+            "build": 2,
+            "format": 1
+          },
+          "frecency": {
+            "build": 6,
+            "format": 3,
+            "lint": 12
+          },
+          "last_cwd_selected": "format",
+          "last_selected": "lint",
+          "recency_rank": {
+            "build": 3,
+            "format": 2,
+            "lint": 1
+          }
+        },
+        "transition_scores": {
+          "build": 0.2,
+          "format": 0.5
+        }
+      },
+      "items": [
+        {
+          "expected_item_id": "format",
+          "text": "Format Code",
+          "value": "format"
+        },
+        {
+          "expected_item_id": "lint",
+          "text": "Run Linter",
+          "value": "lint"
+        },
+        {
+          "expected_item_id": "build",
+          "text": "Build Project",
+          "value": "build"
+        }
+      ],
+      "name": "Command picker with CWD-scoped features",
+      "phases": [
+        {
+          "expected_scores": {
+            "classic": {
+              "build": 33.330062,
+              "format": 35.808268,
+              "lint": 22.366667
+            },
+            "naive": {
+              "build": 4.366687,
+              "format": 4.794473,
+              "lint": 2.211111
+            },
+            "nn": {
+              "build": 48.507233,
+              "format": 43.468081,
+              "lint": 30.267788
+            }
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        },
+        {
+          "expected_scores": {
+            "classic": {
+              "build": 33.330062,
+              "format": 35.808268,
+              "lint": 88.86958
+            },
+            "naive": {
+              "build": 4.366687,
+              "format": 4.794473,
+              "lint": 2.686132
+            },
+            "nn": {
+              "build": 48.507233,
+              "format": 43.468081,
+              "lint": 37.503127
+            }
+          },
+          "match_scores": {
+            "lint": 95
+          },
+          "name": "search for 'li'",
+          "query": "li"
+        }
+      ],
+      "picker_name": "test_commands"
+    },
+    {
+      "context": {
+        "cwd": "/tmp",
+        "tracking_data": {
+          "cwd_frecency": {},
+          "cwd_recency_rank": {},
+          "frecency": {},
+          "last_cwd_selected": null,
+          "last_selected": null,
+          "recency_rank": {}
+        },
+        "transition_scores": {}
+      },
+      "items": [
+        {
+          "expected_item_id": "alpha",
+          "text": "alpha"
+        },
+        {
+          "expected_item_id": "beta",
+          "text": "beta"
+        }
+      ],
+      "name": "Minimal picker with empty tracking",
+      "phases": [
+        {
+          "expected_scores": {
+            "classic": {
+              "alpha": 4,
+              "beta": 4.142857
+            },
+            "naive": {
+              "alpha": 1.666667,
+              "beta": 1.714286
+            },
+            "nn": {
+              "alpha": 34.326653,
+              "beta": 36.351198
+            }
+          },
+          "match_scores": {},
+          "name": "initial (empty query)",
+          "query": ""
+        }
+      ],
+      "picker_name": "test_minimal"
+    }
+  ],
   "test_cases": [
     {
       "context": {
