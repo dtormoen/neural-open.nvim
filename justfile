@@ -42,9 +42,9 @@ clean:
 benchmark:
     ./scripts/test-isolated.sh nlua benchmarks/picker_benchmark.lua
 
-# Update bundled default NN weights from a trained weights.json
-update-default-weights path="./weights.json":
-    ./scripts/update-default-weights.py {{path}}
+# Update bundled default NN weights from trained weight files
+update-default-weights dir="~/.local/share/nvim/neural-open":
+    ./scripts/update-default-weights.py {{dir}}
 
 # Run all checks required before commiting
 precommit: format lint typecheck test

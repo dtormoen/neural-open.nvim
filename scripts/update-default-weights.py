@@ -2,10 +2,11 @@
 # /// script
 # requires-python = ">=3.8"
 # ///
-"""Convert a trained weights.json to a bundled Lua default weights file.
+"""Convert trained weight files to bundled Lua default weight files.
 
-Extracts neural network parameters needed for inference (weights, biases,
-gammas, betas, running_means, running_vars) from a trained weights.json.
+Reads picker weight files (files.json, just_recipes.json) from a directory
+and extracts neural network parameters needed for inference (weights, biases,
+gammas, betas, running_means, running_vars) into Lua files.
 """
 
 import argparse
@@ -22,6 +23,20 @@ NETWORK_KEY_ORDER = [
     "betas",
     "gammas",
     "biases",
+]
+
+# Picker source files and their corresponding Lua output filenames
+PICKERS = [
+    {
+        "source": "files.json",
+        "output": "nn_default_weights.lua",
+        "description": "file ranking",
+    },
+    {
+        "source": "just_recipes.json",
+        "output": "nn_item_default_weights.lua",
+        "description": "item ranking",
+    },
 ]
 
 
@@ -87,7 +102,7 @@ def format_network_field(field_data, indent_level):
     return "\n".join(lines)
 
 
-def generate_lua(version, network, architecture):
+def generate_lua(version, network, architecture, description):
     """Generate the complete Lua file content."""
     arch_str = " -> ".join(str(s) for s in architecture)
 
@@ -99,7 +114,7 @@ def generate_lua(version, network, architecture):
         "--- These weights are used as defaults when no user weights exist."
     )
     lines.append(
-        "--- They represent a pre-trained network that provides good initial file ranking."
+        f"--- They represent a pre-trained network that provides good initial {description}."
     )
     lines.append("---")
     lines.append(f"--- Network architecture: {arch_str}")
@@ -123,82 +138,111 @@ def generate_lua(version, network, architecture):
     return "\n".join(lines)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Convert trained weights.json to bundled Lua default weights"
-    )
-    parser.add_argument(
-        "input",
-        nargs="?",
-        default="./weights.json",
-        help="Path to weights.json (default: ./weights.json)",
-    )
-    args = parser.parse_args()
+def extract_nn_data(data, source_file):
+    """Extract NN data from a weight file, handling both flat and legacy formats.
 
-    # Validate input file
-    if not os.path.exists(args.input):
-        print(f"Error: Input file not found: {args.input}", file=sys.stderr)
-        sys.exit(1)
-
-    # Read weights.json
-    try:
-        with open(args.input) as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON in {args.input}: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Navigate to nn.nn
+    Current format: { "nn": { "version": ..., "network": ..., ... } }
+    Legacy format:  { "nn": { "nn": { "version": ..., "network": ..., ... } } }
+    """
     if "nn" not in data:
-        print("Error: Missing 'nn' key in weights.json", file=sys.stderr)
-        sys.exit(1)
-    if "nn" not in data["nn"]:
-        print("Error: Missing 'nn.nn' key in weights.json", file=sys.stderr)
-        sys.exit(1)
+        print(f"Error: Missing 'nn' key in {source_file}", file=sys.stderr)
+        return None
 
-    nn_data = data["nn"]["nn"]
+    nn_data = data["nn"]
 
-    # Extract version
+    # Auto-migrate legacy double-nested format
+    if "nn" in nn_data and isinstance(nn_data["nn"], dict) and "network" in nn_data["nn"]:
+        nn_data = nn_data["nn"]
+
     if "version" not in nn_data:
-        print("Error: Missing 'nn.nn.version' in weights.json", file=sys.stderr)
-        sys.exit(1)
-    version = nn_data["version"]
+        print(f"Error: Missing 'version' in {source_file}", file=sys.stderr)
+        return None
 
-    # Extract network
     if "network" not in nn_data:
-        print("Error: Missing 'nn.nn.network' in weights.json", file=sys.stderr)
-        sys.exit(1)
-    network = nn_data["network"]
+        print(f"Error: Missing 'network' in {source_file}", file=sys.stderr)
+        return None
 
-    # Validate all required keys exist
+    network = nn_data["network"]
     for key in NETWORK_KEY_ORDER:
         if key not in network:
             print(
-                f"Error: Missing network key '{key}' in weights.json", file=sys.stderr
+                f"Error: Missing network key '{key}' in {source_file}", file=sys.stderr
             )
-            sys.exit(1)
+            return None
 
-    # Infer architecture from weight matrices
+    return nn_data
+
+
+def process_picker(input_dir, picker, output_dir):
+    """Process a single picker weight file and generate its Lua output."""
+    source_path = os.path.join(input_dir, picker["source"])
+
+    if not os.path.exists(source_path):
+        print(f"  Skipping {picker['source']} (not found)")
+        return False
+
+    # Read weight file
+    try:
+        with open(source_path) as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in {source_path}: {e}", file=sys.stderr)
+        return False
+
+    nn_data = extract_nn_data(data, picker["source"])
+    if nn_data is None:
+        return False
+
+    version = nn_data["version"]
+    network = nn_data["network"]
     architecture = infer_architecture(network["weights"])
 
-    # Generate Lua output
-    lua_content = generate_lua(version, network, architecture)
+    lua_content = generate_lua(version, network, architecture, picker["description"])
 
-    # Determine output path (relative to script location -> repo root)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(script_dir)
-    output_path = os.path.join(
-        repo_root, "lua", "neural-open", "algorithms", "nn_default_weights.lua"
-    )
-
-    # Write output
+    output_path = os.path.join(output_dir, picker["output"])
     with open(output_path, "w") as f:
         f.write(lua_content)
 
-    print(f"Wrote default weights to {output_path}")
-    print(f"  Architecture: {' -> '.join(str(s) for s in architecture)}")
-    print(f"  Version: {version}")
-    print(f"  Extracted: {', '.join(NETWORK_KEY_ORDER)}")
+    arch_str = " -> ".join(str(s) for s in architecture)
+    print(f"  {picker['output']}: {arch_str} ({version})")
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Convert trained weight files to bundled Lua default weights"
+    )
+    parser.add_argument(
+        "input_dir",
+        nargs="?",
+        default=os.path.expanduser("~/.local/share/nvim/neural-open"),
+        help="Directory containing weight files (default: ~/.local/share/nvim/neural-open)",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.input_dir):
+        print(f"Error: Directory not found: {args.input_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # Determine output directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(script_dir)
+    output_dir = os.path.join(repo_root, "lua", "neural-open", "algorithms")
+
+    print(f"Reading from: {args.input_dir}")
+    print(f"Writing to:   {output_dir}")
+    print()
+
+    processed = 0
+    for picker in PICKERS:
+        if process_picker(args.input_dir, picker, output_dir):
+            processed += 1
+
+    if processed == 0:
+        print("\nError: No weight files were processed", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\nProcessed {processed} picker(s)")
 
 
 if __name__ == "__main__":

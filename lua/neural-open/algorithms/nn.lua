@@ -1029,13 +1029,17 @@ local function ensure_weights(st, force_reload)
 
     -- If still no weights, try loading from bundled defaults
     if not st.weights then
-      -- Default weights architecture (must match nn_default_weights.lua)
-      local default_architecture = { 11, 16, 16, 8, 1 }
-      local architecture_matches = vim.deep_equal(config.architecture, default_architecture)
+      -- Bundled default weights keyed by architecture
+      local bundled_defaults = {
+        ["11,16,16,8,1"] = "neural-open.algorithms.nn_default_weights",
+        ["8,16,8,1"] = "neural-open.algorithms.nn_item_default_weights",
+      }
+      local arch_key = table.concat(config.architecture, ",")
+      local default_module = bundled_defaults[arch_key]
 
       local default_weights = nil
-      if architecture_matches then
-        local ok, loaded = pcall(require, "neural-open.algorithms.nn_default_weights")
+      if default_module then
+        local ok, loaded = pcall(require, default_module)
         if ok and loaded and loaded.network then
           default_weights = loaded
         end
