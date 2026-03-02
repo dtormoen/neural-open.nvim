@@ -42,9 +42,10 @@ clean:
 benchmark:
     ./scripts/test-isolated.sh nlua benchmarks/picker_benchmark.lua
 
-# Update bundled default NN weights from trained weight files
+# Update bundled default NN weights from trained weight files and re-capture regression tests
 update-default-weights dir="~/.local/share/nvim/neural-open":
     ./scripts/update-default-weights.py {{dir}}
+    REGRESSION_CAPTURE=1 ./scripts/test-isolated.sh busted tests/regression_spec.lua
 
 # Run all checks required before commiting
 precommit: format lint typecheck test
