@@ -2,6 +2,15 @@
 
 ## [0.1.2](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.1...v0.1.2) (2026-03-04)
 
+This release adds **custom item pickers** — neural-open can now learn from any
+picker, not just files. Use `pick()` and `register_picker()` to create pickers
+(e.g., just recipes, make targets, vim commands) that each train their own
+neural network. An 8-feature scoring pipeline handles frecency, recency,
+transitions, and more for non-file items.
+
+Also new: `weights_dir` config for explicit control over where per-picker weight files
+are stored (backward-compatible with `weights_path`), and bundled default weights for
+item pickers so ranking works well out of the box.
 
 ### Features
 
