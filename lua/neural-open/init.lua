@@ -163,7 +163,11 @@ local function get_neural_source_config()
       -- Use the multi finder with the captured context
       local Finder = require("snacks.picker.core.finder")
       local snacks = require("snacks")
-      local multi_sources = { "buffers", "recent", "files", "git_files" }
+      local multi_sources = { "buffers", "recent", "files" }
+      -- git_files source errors when not in a git repo (Snacks shows error notification)
+      if vim.fn.finddir(".git", ".;") ~= "" or vim.fn.findfile(".git", ".;") ~= "" then
+        multi_sources[#multi_sources + 1] = "git_files"
+      end
       local finders = {}
 
       for _, source_name in ipairs(multi_sources) do
