@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.0...v0.1.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* skip git_files source when not inside a git repository ([07f74df](https://github.com/dtormoen/neural-open.nvim/commit/07f74dff874b5d3cf7600602ae029acf39fa088c))
+
 ## [0.1.0](https://github.com/dtormoen/neural-open.nvim/compare/v0.0.1...v0.1.0) (2026-02-26)
 
 
