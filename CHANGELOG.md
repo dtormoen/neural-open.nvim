@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.1.2](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.1...v0.1.2) (2026-03-04)
+
+This release adds **custom item pickers** — neural-open can now learn from any
+picker, not just files. Use `pick()` and `register_picker()` to create pickers
+(e.g., just recipes, make targets, vim commands) that each train their own
+neural network. An 8-feature scoring pipeline handles frecency, recency,
+transitions, and more for non-file items.
+
+Also new: `weights_dir` config for explicit control over where per-picker weight files
+are stored (backward-compatible with `weights_path`), and bundled default weights for
+item pickers so ranking works well out of the box.
+
+### Features
+
+* add bundled item picker default weights and multi-picker weight export ([dcaa6ba](https://github.com/dtormoen/neural-open.nvim/commit/dcaa6ba3677769970dbb58c39ea47864d659ad98))
+* add item picker scoring pipeline with 7-feature architecture ([47c5f87](https://github.com/dtormoen/neural-open.nvim/commit/47c5f8723a4c6149d1a7d29ab7c5e607be4fb2de))
+* add item tracking infrastructure for non-file pickers ([94b0d94](https://github.com/dtormoen/neural-open.nvim/commit/94b0d94059ec208d555d67b9a155a96694b10611))
+* add item-to-item transition tracking for item pickers ([1a477b2](https://github.com/dtormoen/neural-open.nvim/commit/1a477b25399bc682e229f236fc9040940c5f9af0))
+* add per-picker state infrastructure and create_instance to nn.lua ([865408d](https://github.com/dtormoen/neural-open.nvim/commit/865408d59985c599d966592e60ca1103281295bf))
+* add public picker API with pick(), register_picker(), and learning integration ([0381ec6](https://github.com/dtormoen/neural-open.nvim/commit/0381ec62c21fe83b1cf783a085804b423254fa56))
+* add registry isolation tests and update registry for create_instance API ([ecaa442](https://github.com/dtormoen/neural-open.nvim/commit/ecaa4426ec60f97b598869e6b6192c70fbf069d7))
+* add types, end-to-end tests, examples, and documentation for multi-picker support ([ba84a11](https://github.com/dtormoen/neural-open.nvim/commit/ba84a11aa3d5cdbcfc45bb25ce90b4539e039e99))
+* add weights_dir config with backward-compatible weights_path ([08eb4bb](https://github.com/dtormoen/neural-open.nvim/commit/08eb4bbf2fcef1fabc2ca52c75854634a4d44e14))
+* consolidate debug preview for file and item pickers ([c98ead1](https://github.com/dtormoen/neural-open.nvim/commit/c98ead14022189e4f303725be75944eea8e13a04))
+* migrate nn tests to instance API and remove legacy module-level API ([c8c091c](https://github.com/dtormoen/neural-open.nvim/commit/c8c091cbebd1bc92120f10960f0caf5a4ec041a1))
+* refactor classic.lua to per-picker state isolation via create_instance ([52297c2](https://github.com/dtormoen/neural-open.nvim/commit/52297c2fce7cca8c99f48f9bd2b59573e27eada6))
+* refactor weight storage for per-picker file separation ([0c89120](https://github.com/dtormoen/neural-open.nvim/commit/0c891204ce54b06d32942392f1cec74762a5c166))
+* update default weights ([c395f22](https://github.com/dtormoen/neural-open.nvim/commit/c395f22f6b844d935e16403bb0c4619ab01e9f8b))
+
+
+### Bug Fixes
+
+* robust NN input-size migration with feature-name-driven defaults ([ca2df99](https://github.com/dtormoen/neural-open.nvim/commit/ca2df993b175985d739ebc5cdd86cf49ffb30462))
+* suppress spurious adamw optimizer warnings in benchmark ([cd4611b](https://github.com/dtormoen/neural-open.nvim/commit/cd4611b12ce3e453306c6d5d96397793b3ed6e72))
+* unify item frecency normalization with file picker formula ([5d6ec75](https://github.com/dtormoen/neural-open.nvim/commit/5d6ec75e220f1f5cc50f68423fddfc7c75ef8274))
+
 ## [0.1.1](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.0...v0.1.1) (2026-03-04)
 
 
