@@ -119,15 +119,13 @@ describe("db module", function()
     end)
   end)
 
-  describe("backward compatibility", function()
-    it("should use parent directory when weights_path is a .json file", function()
+  describe("weights_dir resolution", function()
+    it("should derive directory from weights_path .json file", function()
       helpers.with_temp_db(function(temp_dir)
-        -- Configure with a legacy .json path
-        local json_path = temp_dir .. "/weights.json"
+        local json_path = temp_dir .. "/files.json"
         neural_open.setup({ weights_path = json_path })
         db.reset_cache()
 
-        -- Save and load should work using the parent directory
         local test_data = { classic = { match = 99 } }
         db.save_weights("files", test_data)
 
@@ -139,15 +137,32 @@ describe("db module", function()
       end)
     end)
 
-    it("should use parent directory when weights_path is an existing file", function()
-      helpers.with_temp_db(function(temp_dir)
-        -- Create an existing file at the configured path (non-.json extension)
-        local existing_path = temp_dir .. "/my_weights"
-        local f = io.open(existing_path, "w")
-        f:write("{}")
-        f:close()
+    it("should use weights_dir when both weights_dir and weights_path are set", function()
+      helpers.with_temp_db(function(dir_path)
+        helpers.with_temp_db(function(other_dir)
+          -- weights_dir should take priority over dirname(weights_path)
+          neural_open.setup({
+            weights_path = other_dir .. "/files.json",
+            weights_dir = dir_path,
+          })
+          db.reset_cache()
 
-        neural_open.setup({ weights_path = existing_path })
+          local test_data = { classic = { match = 55 } }
+          db.save_weights("files", test_data)
+
+          -- File should be in weights_dir, not dirname(weights_path)
+          assert.equals(1, vim.fn.filereadable(dir_path .. "/files.json"))
+          assert.equals(0, vim.fn.filereadable(other_dir .. "/files.json"))
+
+          local loaded = db.get_weights("files")
+          assert.are.same(test_data, loaded)
+        end)
+      end)
+    end)
+
+    it("should accept directory path as weights_path for backward compat", function()
+      helpers.with_temp_db(function(temp_dir)
+        neural_open.setup({ weights_path = temp_dir })
         db.reset_cache()
 
         local test_data = { classic = { match = 77 } }
@@ -155,6 +170,7 @@ describe("db module", function()
 
         local loaded = db.get_weights("files")
         assert.are.same(test_data, loaded)
+        assert.equals(1, vim.fn.filereadable(temp_dir .. "/files.json"))
       end)
     end)
   end)

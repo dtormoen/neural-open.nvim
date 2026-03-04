@@ -98,8 +98,10 @@ require("neural-open").setup({
     },
   },
 
-  -- Directory for per-picker learned weight files (e.g. files.json)
-  weights_path = vim.fn.stdpath("data") .. "/neural-open/",
+  -- Directory for all picker weight files
+  weights_dir = vim.fn.stdpath("data") .. "/neural-open/",
+  -- Deprecated: use weights_dir instead. If set, dirname is used as fallback weights_dir
+  -- weights_path = vim.fn.stdpath("data") .. "/neural-open/files.json",
 
   -- Maximum number of files in persistent recency list
   recency_list_size = 100,

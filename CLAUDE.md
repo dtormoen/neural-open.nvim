@@ -118,7 +118,7 @@ Trains on every selection, including rank #1. Uses a neural network with pairwis
 
 ### Data Persistence
 
-- **Weights directory**: Per-picker data in the configured `weights_path` directory (default `~/.local/share/nvim/neural-open/`). Each picker uses two files:
+- **Weights directory**: Per-picker data in the `weights_dir` directory (default: dirname of `weights_path`, which defaults to `~/.local/share/nvim/neural-open/`). Precedence: explicit `weights_dir` > dirname(`weights_path`) > default. Each picker uses two files:
   - `<picker_name>.json` — model weights only (e.g., `files.json`, `just_recipes.json`):
     - Classic algorithm: Feature weights
     - Neural network algorithm: Network weights, biases, batch norm parameters, optimizer state (timestep and moments for AdamW), training history (pairwise format with `normalized_path` for file pickers or `item_id` for item pickers as positive_file/negative_file), ranking accuracy metrics, and format version
@@ -126,7 +126,7 @@ Trains on every selection, including rank #1. Uses a neural network with pairwis
     - Transition frecency: Nested map of file-to-file navigation patterns with exponential decay (30-day half-life, deadline-based storage, shared between algorithms)
     - Recency list: Ordered array of recently accessed file paths (default 100 entries). BufEnter adds paths to an in-memory `pending_touches` list; a 5s debounce timer or VimLeavePre merges with the on-disk list and writes back
     - Item tracking (non-file pickers): `item_tracking` key holding global frecency, CWD-scoped frecency, global recency list, CWD-scoped recency lists, and item-to-item transition frecency. Deadline-based exponential decay (30-day half-life). Written immediately to disk on each selection (stateless read-modify-write)
-- **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. If `weights_path` is configured as a `.json` file path, a deprecation warning is logged and the parent directory is used. On first `get_tracking()` call, if `<picker>.tracking.json` does not exist, tracking keys (`recency_list`, `transition_frecency`, `item_tracking`) are extracted from `<picker>.json` into the new tracking file and removed from the weight file. Legacy `transition_history` key is also cleaned up during this migration
+- **Auto-migration**: On first run after upgrading, `weights.json` is automatically renamed to `files.json` with a `weights.json.bak` backup. On first `get_tracking()` call, if `<picker>.tracking.json` does not exist, tracking keys (`recency_list`, `transition_frecency`, `item_tracking`) are extracted from `<picker>.json` into the new tracking file and removed from the weight file. Legacy `transition_history` key is also cleaned up during this migration
 - **Atomic writes**: Uses temp file + rename pattern to prevent data corruption
 - **Async updates**: Weight learning happens in background without blocking UI
 - **Format Versioning**: Neural network weights include version field (v2.0-hinge for pairwise format)
@@ -333,7 +333,7 @@ The plugin is highly configurable with settings for:
   - AdamW: Adaptive, robust, recommended for most users
 - **Matching algorithms**: fzf/fzy for fuzzy matching
 - **Learning rate adjustments**: Per-algorithm learning rate configuration
-- **Database location and persistence**: Configurable storage directory for per-picker weight files (`weights_path`)
+- **Database location and persistence**: Configurable storage directory for per-picker weight files (`weights_dir`, or derived from `weights_path`)
 - **Scoring weights and factors**: Customizable feature weights for Classic algorithm
 - **Item picker algorithm config**: Separate algorithm configurations for non-file pickers via `item_algorithm_config` (8-feature pipeline: match, frecency, cwd_frecency, recency, cwd_recency, text_length_inv, not_last_selected, transition). Default NN architecture is `{8, 16, 8, 1}`
 - **Regularization**: Weight decay, dropout rates, match_dropout, layer-specific decay multipliers for Neural Network

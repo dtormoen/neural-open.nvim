@@ -77,7 +77,8 @@ M.config = {
       margin = 1.0,
     },
   },
-  weights_path = vim.fn.stdpath("data") .. "/neural-open/",
+  weights_path = vim.fn.stdpath("data") .. "/neural-open/files.json",
+  weights_dir = nil, -- Directory for all picker weight files (defaults to dirname of weights_path)
   special_files = {
     ["__init__.py"] = true,
     ["index.js"] = true,

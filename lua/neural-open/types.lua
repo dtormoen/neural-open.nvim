@@ -191,7 +191,8 @@
 ---@field algorithm AlgorithmName Active algorithm: "classic" | "naive" | "nn"
 ---@field algorithm_config NosAlgorithmConfig Algorithm-specific configurations for file pickers
 ---@field item_algorithm_config NosAlgorithmConfig Algorithm-specific configurations for item pickers (8-feature pipeline)
----@field weights_path string Directory path to store learned weights (per-picker JSON files)
+---@field weights_path string Path to the default file picker's weight file (dirname used as fallback weights_dir)
+---@field weights_dir? string Directory for all picker weight files (overrides dirname of weights_path)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)
 ---@field file_sources string[] File sources for the default file picker (default {"buffers", "recent", "files", "git_files"})

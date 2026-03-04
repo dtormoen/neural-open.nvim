@@ -3,7 +3,7 @@ local M = {}
 local cached_weights_dir = nil
 
 --- Resolve and cache the weights directory path.
---- Handles backward compatibility for .json file paths and auto-migration from weights.json to files.json.
+--- Precedence: 1) weights_dir  2) dirname(weights_path)  3) default
 ---@return string The weights directory path
 local function ensure_weights_dir()
   if cached_weights_dir then
@@ -11,19 +11,23 @@ local function ensure_weights_dir()
   end
 
   local init = require("neural-open")
-  local configured_path = init.config.weights_path or (vim.fn.stdpath("data") .. "/neural-open/")
-  configured_path = vim.fn.expand(configured_path)
+  local config = init.config
 
-  -- Backward compat: if path ends in .json or is an existing file, use parent dir
-  if configured_path:match("%.json$") or (vim.fn.filereadable(configured_path) == 1) then
-    vim.notify(
-      "neural-open: weights_path should be a directory, not a file. Using parent directory.",
-      vim.log.levels.WARN
-    )
-    cached_weights_dir = vim.fn.fnamemodify(configured_path, ":h")
+  if config.weights_dir then
+    -- 1. Explicit weights_dir takes priority
+    cached_weights_dir = vim.fn.expand(config.weights_dir):gsub("/+$", "")
+  elseif config.weights_path then
+    local expanded = vim.fn.expand(config.weights_path)
+    if expanded:match("%.json$") then
+      -- 2a. File path → use parent directory
+      cached_weights_dir = vim.fn.fnamemodify(expanded, ":h")
+    else
+      -- 2b. Directory path (backward compat for users who set it to a dir)
+      cached_weights_dir = expanded:gsub("/+$", "")
+    end
   else
-    -- Strip trailing slashes for consistency
-    cached_weights_dir = configured_path:gsub("/+$", "")
+    -- 3. Default fallback
+    cached_weights_dir = vim.fn.stdpath("data") .. "/neural-open"
   end
 
   vim.fn.mkdir(cached_weights_dir, "p")
