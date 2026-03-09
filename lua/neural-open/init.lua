@@ -369,8 +369,12 @@ local function get_neural_source_config()
       local Finder = require("snacks.picker.core.finder")
       local snacks = require("snacks")
       local multi_sources = M.config.file_sources
-      -- git_files source errors when not in a git repo (Snacks shows error notification)
-      local in_git = vim.fn.finddir(".git", ".;") ~= "" or vim.fn.findfile(".git", ".;") ~= ""
+      -- Detect git repo via rev-parse (handles worktrees, GIT_DIR, submodules, bare repos)
+      local in_git = vim.fn.executable("git") == 1
+      if in_git then
+        vim.fn.system("git rev-parse --is-inside-work-tree")
+        in_git = vim.v.shell_error == 0
+      end
       local finders = {}
 
       for _, source_name in ipairs(multi_sources) do
