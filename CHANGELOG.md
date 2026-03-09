@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.2...v0.1.3) (2026-03-09)
+
+
+### Bug Fixes
+
+* use git rev-parse for more robust git repo detection ([facebc6](https://github.com/dtormoen/neural-open.nvim/commit/facebc6da1acf55c0cff5d11e6f5a807e4c5248b))
+
 ## [0.1.2](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.1...v0.1.2) (2026-03-04)
 
 This release adds **custom item pickers** — neural-open can now learn from any
