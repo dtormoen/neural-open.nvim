@@ -313,7 +313,7 @@ describe("end-to-end multi-picker", function()
   describe("file_sources config", function()
     it("defaults to standard file sources", function()
       local defaults = helpers.get_default_config()
-      assert.are.same({ "buffers", "recent", "files", "git_files" }, defaults.file_sources)
+      assert.are.same({ "buffers", "neural_recent", "files", "git_files" }, defaults.file_sources)
     end)
 
     it("is respected when overridden via setup", function()

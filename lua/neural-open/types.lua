@@ -195,5 +195,5 @@
 ---@field weights_dir? string Directory for all picker weight files (overrides dirname of weights_path)
 ---@field special_files table<string, boolean> Special files requiring virtual name handling
 ---@field recency_list_size number Maximum number of files in persistent recency list (default 100)
----@field file_sources string[] File sources for the default file picker (default {"buffers", "recent", "files", "git_files"})
+---@field file_sources string[] File sources for the default file picker (default {"buffers", "neural_recent", "files", "git_files"})
 ---@field debug NosDebugConfig Debug settings

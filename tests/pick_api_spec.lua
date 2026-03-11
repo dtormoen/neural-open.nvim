@@ -62,7 +62,7 @@ describe("public picker API", function()
     it("includes file_sources in default config", function()
       local defaults = helpers.get_default_config()
       assert.is_not_nil(defaults.file_sources)
-      assert.are.same({ "buffers", "recent", "files", "git_files" }, defaults.file_sources)
+      assert.are.same({ "buffers", "neural_recent", "files", "git_files" }, defaults.file_sources)
     end)
 
     it("allows overriding file_sources via setup", function()

@@ -25,6 +25,7 @@ Results are documented in `docs/benchmark-results.md`.
 - **`scorer.lua`**: Multi-factor scoring algorithm (fuzzy matching, frecency, proximity, buffers). Owns `FEATURE_NAMES` (the canonical feature ordering for `input_buf`), `input_buf_to_features()` for file picker feature conversion, and `get_item_identity(item)` shared by all algorithms for unified file/item identity
 - **`weights.lua`**: Self-learning weight adjustment system that adapts to user preferences
 - **`recent.lua`**: File-path-based recency tracking with pending touches and debounced persistence. BufEnter events add paths to an in-memory `pending_touches` list (no disk I/O); a 5s debounce timer or VimLeavePre merges pending touches with the on-disk list and writes back
+- **`recent_finder.lua`**: Snacks picker finder that combines neural-open's recency list with snacks frecency DB. Deduplicates and filters non-existent files. Registered as the `neural_recent` source, replacing snacks' built-in `recent` source in the default file picker
 - **`item_tracking.lua`**: Generic frecency, recency, and transition tracking for non-file picker items, keyed by picker name + item identity. Supports global and CWD-scoped tracking with deadline-based exponential decay (30-day half-life). Includes item-to-item transition frecency (CWD-scoped source tracking). Data persisted under `item_tracking` key in each picker's tracking file (`<picker_name>.tracking.json`). Stateless module: every operation reads from disk, modifies, and writes back immediately (no module-level cache or debounce). Public functions accept an optional pre-loaded `store` parameter to avoid redundant disk reads
 - **`frecency.lua`**: Shared deadline-based frecency math. Pure functions with no I/O or mutable state: `deadline_to_score`/`score_to_deadline` conversion, `bump` for increment-and-store, `normalize_transition` for [0,1] mapping, and `prune_map`/`prune_nested` for in-place size-limiting of frecency tables. Used by `transitions.lua`, `item_tracking.lua`, and `debug.lua`
 - **`path.lua`**: Shared path normalization utility. Caches `vim.fs.normalize` availability at module load and provides a single `normalize(path)` function used by `source.lua`, `transitions.lua`, and `recent.lua`
@@ -151,7 +152,7 @@ The plugin exposes a generic `pick()` API for creating arbitrary item pickers wi
 - **`M.open()`**: Unchanged — opens the default file picker.
 - **`:NeuralOpen pick <name>`**: Opens a registered picker by name.
 
-Configurable `file_sources` (default `{"buffers", "recent", "files", "git_files"}`) controls which Snacks sources the default file picker uses.
+Configurable `file_sources` (default `{"buffers", "neural_recent", "files", "git_files"}`) controls which Snacks sources the default file picker uses.
 
 ## Testing
 

@@ -117,7 +117,7 @@ require("neural-open").setup({
   },
 
   -- File sources for the default file picker
-  file_sources = { "buffers", "recent", "files", "git_files" },
+  file_sources = { "buffers", "neural_recent", "files", "git_files" },
 
   -- Algorithm config for item pickers (8-feature pipeline, separate from file pickers)
   item_algorithm_config = {
@@ -295,12 +295,16 @@ Simple unweighted sum of all normalized features. No learning. Useful for testin
 - `:NeuralOpen algorithm [name]` - Show or set scoring algorithm
 - `:NeuralOpen reset [algorithm]` - Reset weights for current or specified algorithm
 
-### Picker Source
+### Picker Sources
 
-The plugin registers as `neural_open` source in Snacks.nvim:
+The plugin registers two sources in Snacks.nvim:
+
+- `neural_open` — the main file picker with neural scoring
+- `neural_recent` — combines neural-open's BufEnter-based recency list with Snacks' frecency database, replacing the built-in `recent` source for better file candidate discovery
 
 ```lua
 require("snacks").picker.sources.neural_open
+require("snacks").picker.sources.neural_recent
 ```
 
 ## Development

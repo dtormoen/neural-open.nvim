@@ -92,6 +92,7 @@ function M.clear_plugin_modules()
     "neural-open.item_tracking",
     "neural-open.item_scorer",
     "neural-open.item_source",
+    "neural-open.recent_finder",
   }
 
   for _, module in ipairs(modules_to_clear) do

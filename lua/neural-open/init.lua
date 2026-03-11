@@ -90,7 +90,7 @@ M.config = {
     ["mod.rs"] = true,
   },
   recency_list_size = 100, -- Maximum number of files in persistent recency list
-  file_sources = { "buffers", "recent", "files", "git_files" },
+  file_sources = { "buffers", "neural_recent", "files", "git_files" },
   -- Debug settings (all optional, for development/troubleshooting)
   debug = {
     preview = false, -- Show detailed score breakdown in preview
@@ -425,6 +425,9 @@ local function ensure_initialized()
   local snacks = require("snacks")
   snacks.picker.sources = snacks.picker.sources or {}
   snacks.picker.sources.neural_open = get_neural_source_config()
+  snacks.picker.sources.neural_recent = {
+    finder = require("neural-open.recent_finder").finder,
+  }
 
   -- Enable latency tracking based on config
   local latency = require("neural-open.latency")
