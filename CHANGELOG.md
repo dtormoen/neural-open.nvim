@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.3...v0.1.4) (2026-03-11)
+
+
+### Features
+
+* add neural_recent file source combining recency and frecency ([36c2826](https://github.com/dtormoen/neural-open.nvim/commit/36c2826e9e8a955dd75b916d2953dad55a386270))
+
 ## [0.1.3](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.2...v0.1.3) (2026-03-09)
 
 
