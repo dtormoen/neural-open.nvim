@@ -369,18 +369,34 @@ local function get_neural_source_config()
       local Finder = require("snacks.picker.core.finder")
       local snacks = require("snacks")
       local multi_sources = M.config.file_sources
-      -- Detect git repo via rev-parse (handles worktrees, GIT_DIR, submodules, bare repos)
-      local in_git = vim.fn.executable("git") == 1
-      if in_git then
-        vim.fn.system("git rev-parse --is-inside-work-tree")
-        in_git = vim.v.shell_error == 0
+      -- Detect git repo and capture its root in a single call
+      -- (handles worktrees, GIT_DIR, submodules; fails for bare repos, which is fine)
+      local git_root = nil
+      if vim.fn.executable("git") == 1 then
+        local output = vim.fn.system({ "git", "rev-parse", "--show-toplevel" })
+        if vim.v.shell_error == 0 then
+          local trimmed = vim.trim(output)
+          if trimmed ~= "" then
+            git_root = trimmed
+          end
+        end
       end
       local finders = {}
 
       for _, source_name in ipairs(multi_sources) do
-        if source_name ~= "git_files" or in_git then
+        if source_name ~= "git_files" or git_root then
           local source_config = vim.deepcopy(snacks.picker.sources[source_name])
           local finder = require("snacks.picker.config").finder(source_config.finder)
+          if source_name == "git_files" then
+            -- Pin git_files to git_root so it lists the whole repo but does NOT
+            -- call ctx.picker:set_cwd(git_root), which would clobber the picker's
+            -- cwd (breaking scoring's project bonus and preview path resolution
+            -- when nvim is launched from a subdirectory of the repo).
+            local inner = finder
+            finder = function(inner_opts, inner_ctx)
+              return inner(vim.tbl_extend("force", inner_opts or {}, { cwd = git_root }), inner_ctx)
+            end
+          end
           finders[#finders + 1] = finder
         end
       end
