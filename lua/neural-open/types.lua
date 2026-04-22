@@ -184,6 +184,8 @@
 ---@field format string|function|nil Format function or named format
 ---@field preview string|function|nil Preview function or named preview
 ---@field confirm fun(picker: table, item: table)? Action on selection
+---@field actions table<string, fun(picker: table, item: table)>? Snacks picker actions, forwarded to source config
+---@field win table? Snacks picker window config (e.g. win.input.keys), forwarded to source config
 ---@field algorithm AlgorithmName? Algorithm override (default from global config)
 ---@field algorithm_config table? Algorithm config overrides
 

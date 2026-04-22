@@ -546,4 +546,85 @@ describe("item_tracking module", function()
       end)
     end)
   end)
+
+  describe("get_known_item_ids", function()
+    it("returns empty set when no persisted data exists", function()
+      local ids = item_tracking.get_known_item_ids("test_picker")
+      assert.same({}, ids)
+    end)
+
+    it("returns ids from global frecency and recency_list", function()
+      item_tracking.record_selection("test_picker", "build", "/proj")
+      item_tracking.record_selection("test_picker", "test --verbose", "/proj")
+      item_tracking.record_selection("test_picker", "deploy --env prod", "/other")
+
+      local ids = item_tracking.get_known_item_ids("test_picker")
+      assert.is_true(ids["build"])
+      assert.is_true(ids["test --verbose"])
+      assert.is_true(ids["deploy --env prod"])
+    end)
+
+    it("is isolated per picker", function()
+      item_tracking.record_selection("picker_a", "recipe_a", "/proj")
+      item_tracking.record_selection("picker_b", "recipe_b", "/proj")
+
+      local a_ids = item_tracking.get_known_item_ids("picker_a")
+      local b_ids = item_tracking.get_known_item_ids("picker_b")
+      assert.is_true(a_ids["recipe_a"])
+      assert.is_nil(a_ids["recipe_b"])
+      assert.is_true(b_ids["recipe_b"])
+      assert.is_nil(b_ids["recipe_a"])
+    end)
+
+    it("includes ids from recency_list even after frecency pruning", function()
+      tracking_store["test_picker"] = {
+        item_tracking = {
+          frecency = {},
+          recency_list = { "only_in_recency" },
+        },
+      }
+
+      local ids = item_tracking.get_known_item_ids("test_picker")
+      assert.is_true(ids["only_in_recency"])
+    end)
+  end)
+
+  describe("get_cwd_known_item_ids", function()
+    it("returns empty set when no persisted data exists", function()
+      local ids = item_tracking.get_cwd_known_item_ids("test_picker", "/proj")
+      assert.same({}, ids)
+    end)
+
+    it("returns only ids selected in the given cwd", function()
+      item_tracking.record_selection("test_picker", "in_proj", "/proj")
+      item_tracking.record_selection("test_picker", "in_other", "/other")
+
+      local proj_ids = item_tracking.get_cwd_known_item_ids("test_picker", "/proj")
+      assert.is_true(proj_ids["in_proj"])
+      assert.is_nil(proj_ids["in_other"])
+
+      local other_ids = item_tracking.get_cwd_known_item_ids("test_picker", "/other")
+      assert.is_true(other_ids["in_other"])
+      assert.is_nil(other_ids["in_proj"])
+    end)
+
+    it("unions cwd_frecency and cwd_recency keys", function()
+      tracking_store["test_picker"] = {
+        item_tracking = {
+          cwd_frecency = { ["/proj"] = { only_in_frec = mock_time + 100 } },
+          cwd_recency = { ["/proj"] = { "only_in_rec" } },
+        },
+      }
+
+      local ids = item_tracking.get_cwd_known_item_ids("test_picker", "/proj")
+      assert.is_true(ids["only_in_frec"])
+      assert.is_true(ids["only_in_rec"])
+    end)
+
+    it("returns empty set for unknown cwd", function()
+      item_tracking.record_selection("test_picker", "recipe", "/proj")
+      local ids = item_tracking.get_cwd_known_item_ids("test_picker", "/unknown")
+      assert.same({}, ids)
+    end)
+  end)
 end)

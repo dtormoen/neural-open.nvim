@@ -353,6 +353,8 @@ local function build_item_source_config(picker_name, picker_config)
     sort = { fields = { "score:desc", "idx" } },
     confirm = create_item_confirm_handler(picker_name, picker_config.confirm),
     title = picker_config.title,
+    actions = picker_config.actions,
+    win = picker_config.win,
     debug = { scores = M.config.debug.snacks_scores },
   }
 end

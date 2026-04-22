@@ -218,6 +218,48 @@ function M.get_transition_frecency(picker_name, store)
   return store.transition_frecency or {}
 end
 
+--- Get the set of item_ids this picker has ever tracked globally.
+--- Unions ids from global frecency and recency_list. Intended for finders that
+--- want to re-emit previously-selected items (e.g. recipe invocations with
+--- custom args) so they participate in scoring.
+---@param picker_name string
+---@return table<string, true> Set of known item_ids
+function M.get_known_item_ids(picker_name)
+  local store = get_store(picker_name)
+  local seen = {}
+  for id in pairs(store.frecency or {}) do
+    seen[id] = true
+  end
+  for _, id in ipairs(store.recency_list or {}) do
+    seen[id] = true
+  end
+  return seen
+end
+
+--- Get the set of item_ids this picker has tracked within a specific cwd.
+--- Unions ids from cwd_frecency[cwd] and cwd_recency[cwd]. Use this when you
+--- only want to re-emit items that were selected while working in this cwd.
+---@param picker_name string
+---@param cwd string Current working directory
+---@return table<string, true> Set of known item_ids for this cwd
+function M.get_cwd_known_item_ids(picker_name, cwd)
+  local store = get_store(picker_name)
+  local seen = {}
+  local cwd_frec = store.cwd_frecency and store.cwd_frecency[cwd]
+  if cwd_frec then
+    for id in pairs(cwd_frec) do
+      seen[id] = true
+    end
+  end
+  local cwd_rec = store.cwd_recency and store.cwd_recency[cwd]
+  if cwd_rec then
+    for _, id in ipairs(cwd_rec) do
+      seen[id] = true
+    end
+  end
+  return seen
+end
+
 --- No-op reset (kept for test compatibility). No module-level state to clear.
 function M.reset() end
 

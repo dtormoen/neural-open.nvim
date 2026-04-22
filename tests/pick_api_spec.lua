@@ -329,6 +329,42 @@ describe("public picker API", function()
 
       package.loaded["snacks"] = nil
     end)
+
+    it("forwards actions and win config from user picker_config", function()
+      neural_open._initialized = true
+      local snacks_sources = {}
+      package.loaded["snacks"] = {
+        picker = {
+          sources = snacks_sources,
+          pick = function() end,
+        },
+      }
+
+      local user_actions = {
+        add_args = function() end,
+      }
+      local user_win = {
+        input = {
+          keys = {
+            ["<C-a>"] = { "add_args", mode = { "n", "i" }, desc = "Add args" },
+          },
+        },
+      }
+
+      neural_open.pick("forwarding_test", {
+        title = "Forwarding Test",
+        items = { { text = "item1" } },
+        actions = user_actions,
+        win = user_win,
+      })
+
+      local source = snacks_sources["neural_open_forwarding_test"]
+      assert.is_not_nil(source)
+      assert.equals(user_actions, source.actions)
+      assert.equals(user_win, source.win)
+
+      package.loaded["snacks"] = nil
+    end)
   end)
 
   describe("build_file_source_config", function()
