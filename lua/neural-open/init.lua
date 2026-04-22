@@ -357,6 +357,26 @@ local function build_item_source_config(picker_name, picker_config)
   }
 end
 
+-- Wrap git_files finder so it lists the whole repo but does NOT call
+-- ctx.picker:set_cwd(git_root), which would clobber the picker's cwd (breaking
+-- scoring's project bonus and preview path resolution when nvim is launched
+-- from a subdirectory of the repo).
+--
+-- We must propagate cwd through the ctx as well: git_files's inner proc call
+-- resolves opts.cwd through ctx._opts -> picker.opts. If we only pin the opts
+-- table, proc falls back to picker.opts.cwd (nil) and git ls-files runs from
+-- uv.cwd() (the subdir), yielding paths relative to the subdir but stamped
+-- with item.cwd=git_root, producing bogus absolute paths that skip our dedup.
+---@param inner fun(opts: table, ctx: table): any The raw git_files finder
+---@param git_root string Absolute path to git root
+---@return fun(opts: table, ctx: table): any Wrapped finder
+function M._pin_git_files(inner, git_root)
+  return function(inner_opts, inner_ctx)
+    local pinned = vim.tbl_extend("force", inner_opts or {}, { cwd = git_root })
+    return inner(pinned, inner_ctx:clone(pinned))
+  end
+end
+
 -- Helper function to get neural-open source configuration
 local function get_neural_source_config()
   return {
@@ -388,14 +408,7 @@ local function get_neural_source_config()
           local source_config = vim.deepcopy(snacks.picker.sources[source_name])
           local finder = require("snacks.picker.config").finder(source_config.finder)
           if source_name == "git_files" then
-            -- Pin git_files to git_root so it lists the whole repo but does NOT
-            -- call ctx.picker:set_cwd(git_root), which would clobber the picker's
-            -- cwd (breaking scoring's project bonus and preview path resolution
-            -- when nvim is launched from a subdirectory of the repo).
-            local inner = finder
-            finder = function(inner_opts, inner_ctx)
-              return inner(vim.tbl_extend("force", inner_opts or {}, { cwd = git_root }), inner_ctx)
-            end
+            finder = M._pin_git_files(finder, assert(git_root))
           end
           finders[#finders + 1] = finder
         end
