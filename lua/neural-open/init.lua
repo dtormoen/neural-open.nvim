@@ -1,6 +1,6 @@
 local M = {}
 
-M.version = "0.1.4" -- x-release-please-version
+M.version = "0.1.5" -- x-release-please-version
 
 ---@class NosConfig
 M.config = {

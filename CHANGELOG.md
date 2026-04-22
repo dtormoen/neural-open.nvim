@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.5](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.4...v0.1.5) (2026-04-22)
+
+
+### Features
+
+* expose known item_id queries and forward picker actions/win ([83af87f](https://github.com/dtormoen/neural-open.nvim/commit/83af87f096104ea3ddd66d9c4b798a90d3ee4f2b))
+* update default weights ([de224d7](https://github.com/dtormoen/neural-open.nvim/commit/de224d761476eaaa19a1cf9d6c766fffea9875c6))
+
+
+### Bug Fixes
+
+* propagate pinned cwd through ctx so git_files proc runs from git_root ([ec7fa0c](https://github.com/dtormoen/neural-open.nvim/commit/ec7fa0c4b0e1a2cc1799ea79de6bb3ce28585951))
+
 ## [0.1.4](https://github.com/dtormoen/neural-open.nvim/compare/v0.1.3...v0.1.4) (2026-04-21)
 
 
